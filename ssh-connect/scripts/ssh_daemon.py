@@ -27,11 +27,23 @@ from ssh_session import SSHSession, ExecuteResult
 
 # PyInstaller 打包后 __file__ 指向临时解压目录，用 sys.executable 获取实际 exe 位置
 if getattr(sys, 'frozen', False):
-    SCRIPT_DIR = os.path.dirname(os.path.abspath(sys.executable))
+    _exe_dir = os.path.dirname(os.path.abspath(sys.executable))
 else:
-    SCRIPT_DIR = _script_dir
-CONFIG_FILE = os.path.join(SCRIPT_DIR, "env_config.json")
-TOKEN_FILE = os.path.join(SCRIPT_DIR, "daemon.token")
+    _exe_dir = _script_dir
+
+# 配置文件优先找同级目录，exe 模式下回退 ../scripts/
+_config_candidates = [_exe_dir, os.path.join(os.path.dirname(_exe_dir), "scripts")]
+CONFIG_FILE = None
+TOKEN_FILE = None
+for d in _config_candidates:
+    cfg = os.path.join(d, "env_config.json")
+    if os.path.exists(cfg):
+        CONFIG_FILE = cfg
+        TOKEN_FILE = os.path.join(d, "daemon.token")
+        break
+if CONFIG_FILE is None:
+    CONFIG_FILE = os.path.join(_exe_dir, "env_config.json")
+    TOKEN_FILE = os.path.join(_exe_dir, "daemon.token")
 
 
 def load_or_create_token() -> str:

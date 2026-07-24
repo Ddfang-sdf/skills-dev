@@ -37,7 +37,15 @@ OUTBOX_DIR = SKILL_ROOT / "outbox"
 INBOX_FILE = INBOX_DIR / "task.json"  # 单 agent 默认文件（向后兼容）
 OUTBOX_FILE = OUTBOX_DIR / "result.json"
 CONFIG_FILE = SCRIPT_DIR / "env_config.json"
-TOKEN_FILE = SCRIPT_DIR / "daemon.token"
+# token 文件放在 env_config.json 同一目录（daemon 也读同一位置）
+def _resolve_token_file():
+    """找到 env_config.json 所在目录，token 文件放同目录。"""
+    for d in (SCRIPT_DIR, SKILL_ROOT / "scripts", SKILL_ROOT):
+        cfg = d / "env_config.json"
+        if cfg.exists():
+            return d / "daemon.token"
+    return SCRIPT_DIR / "daemon.token"
+TOKEN_FILE = _resolve_token_file()
 DAEMON_HOST = "127.0.0.1"
 DAEMON_PORT = 19522
 DAEMON_SCRIPT = SCRIPT_DIR / "ssh_daemon.py"

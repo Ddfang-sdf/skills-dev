@@ -26,11 +26,17 @@ import paramiko
 
 # 路径：PyInstaller 打包后 __file__ 指向临时解压目录，用 sys.executable 获取实际位置
 if getattr(sys, 'frozen', False):
-    SCRIPT_DIR = Path(sys.executable).parent
+    _exe_dir = Path(sys.executable).parent
 else:
-    SCRIPT_DIR = Path(__file__).parent
+    _exe_dir = Path(__file__).parent
 
-KNOWN_HOSTS_FILE = SCRIPT_DIR / "known_hosts"
+# known_hosts 优先放 scripts/，exe 模式下回退 bin/
+_config_dirs = [_exe_dir, _exe_dir.parent / "scripts"]
+KNOWN_HOSTS_FILE = _exe_dir / "known_hosts"  # 默认
+for d in _config_dirs:
+    if (d / "env_config.json").exists() or d.name == "scripts":
+        KNOWN_HOSTS_FILE = d / "known_hosts"
+        break
 
 
 @dataclass
