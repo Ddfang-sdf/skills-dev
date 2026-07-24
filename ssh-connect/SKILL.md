@@ -36,7 +36,9 @@ description: 连接远程服务器执行命令。当用户需要访问远程服�
 
 ### 第一步：Write 任务文件
 
-使用 Write 工具写入 `<SKILL_ROOT>/inbox/task_{task_id}.json`，文件内容为任务 JSON。具体格式见下方各操作类型。
+使用 Write 工具写入 `<SKILL_ROOT>/inbox/{task_id}.json`，文件名即 task_id 的值。例如 task_id 为 `task_1` 时，文件即为 `task_1.json`。具体格式见下方各操作类型。
+
+> `run.py` 会扫描 inbox 下所有 `task_*.json` 并全部执行。日常使用请复用同一 task_id（文件覆写），避免历史文件堆积导致重复执行。
 
 ### 第二步：执行脚本
 
@@ -220,7 +222,7 @@ inbox/task.json 文件每次只能包含以下五种操作之一（不可同时�
 - 格式：`task_N`（N 从 1 递增），如 `task_1`、`task_2`
 - **每个新任务使用新的 task_id**，顺序递增，便于日志对应
 - **重试时必须沿用同一个 task_id**（force=true、escalate=true、切换凭证等场景），便于对照同一任务的前后结果
-- 任务文件写入 `inbox/task_{task_id}.json`，结果写入 `outbox/result_{task_id}.json`。同名 task_id 覆写。多 agent 并发时各写各的文件，互不冲突
+- 文件命名：任务文件 `inbox/{task_id}.json`，结果文件 `outbox/result_{task_id}.json`。同名 task_id 覆写，多 agent 并发时各写各的文件，互不冲突
 
 ---
 
@@ -237,6 +239,8 @@ inbox/task.json 文件每次只能包含以下五种操作之一（不可同时�
 | `UNAUTHORIZED` | daemon 鉴权失败（多为升级后旧 daemon 未退出） | 结束旧 daemon 进程后重试 |
 | `needs_escalation: true` | 权限不足 | 按"权限提升"一节处置 |
 | `未找到 target ... 环境配置` | 环境未录入 | 引导用户通过 `env` add 录入 |
+| `环境 ... 已存在` | env add 时环境名重复 | 改用 `env update` 修改，或先 `env remove` 再 `add` |
+| 命令输出中混入"环境已存在"等无关错误 | inbox 中有历史遗留文件被一并处理 | 复用同一 task_id 覆写文件，或删掉 inbox 下多余文件 |
 | `未配置 sudo_password` | 当前凭证无 sudo 密码 | 询问用户补充（env update）或换用其他凭证（as） |
 | daemon 不可用 | 脚本自动降级为直连，stderr 有提示 | 不影响使用。若反复出现则提示用户检查 |
 | stdout 末尾无 `[完整结果]` 标记 | 输出被截断 | Read 工具读取 `outbox/result.json` |
