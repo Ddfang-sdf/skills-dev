@@ -32,11 +32,11 @@ description: 连接远程服务器执行命令。当用户需要访问远程服�
 
 **所有操作（命令执行、文件传输、会话管理、环境配置）统一为三步调用模式。**
 
-路径约定：`<SKILL_ROOT>` 指本 SKILL.md 所在的目录。脚本会自行定位 `inbox/`、`outbox/`（兼容脚本在 `scripts/` 子目录或 exe 在根目录两种布局），写入时务必写到 `<SKILL_ROOT>/inbox/task.json`。
+路径约定：`<SKILL_ROOT>` 指本 SKILL.md 所在的目录。脚本会自行定位 `inbox/`、`outbox/`（兼容脚本在 `scripts/` 子目录或 exe 在根目录两种布局），写入时务必写到 `<SKILL_ROOT>/inbox/task_{task_id}.json`。
 
 ### 第一步：Write 任务文件
 
-使用 Write 工具覆写 `<SKILL_ROOT>/inbox/task.json`，文件内容为任务 JSON。具体格式见下方各操作类型。
+使用 Write 工具写入 `<SKILL_ROOT>/inbox/task_{task_id}.json`，文件内容为任务 JSON。具体格式见下方各操作类型。
 
 ### 第二步：执行脚本
 
@@ -47,10 +47,10 @@ description: 连接远程服务器执行命令。当用户需要访问远程服�
 
 ### 第三步：获取结果
 
-Run 工具的 stdout 会打印命令输出，**末尾固定有一行 `[完整结果: outbox/result.json]` 标记**。
+Run 工具的 stdout 会打印命令输出，**末尾固定有一行 `[完整结果: outbox/result_{task_id}.json]` 标记**。
 
 - stdout 末尾**有**该标记 → 输出完整，直接使用
-- stdout 末尾**没有**该标记（说明被截断），或信息不全 → Read 工具读取 `<SKILL_ROOT>/outbox/result.json`
+- stdout 末尾**没有**该标记（说明被截断），或信息不全 → Read 工具读取 `<SKILL_ROOT>/outbox/result_{task_id}.json`
 
 **禁止在读取 outbox/result.json 之前换命令重试。**
 
@@ -220,7 +220,7 @@ inbox/task.json 文件每次只能包含以下五种操作之一（不可同时�
 - 格式：`task_N`（N 从 1 递增），如 `task_1`、`task_2`
 - **每个新任务使用新的 task_id**，顺序递增，便于日志对应
 - **重试时必须沿用同一个 task_id**（force=true、escalate=true、切换凭证等场景），便于对照同一任务的前后结果
-- 任务文件始终写入 `inbox/task.json`（每次覆写），结果写入 `outbox/result.json`（每次覆写）
+- 任务文件写入 `inbox/task_{task_id}.json`，结果写入 `outbox/result_{task_id}.json`。同名 task_id 覆写。多 agent 并发时各写各的文件，互不冲突
 
 ---
 
@@ -258,7 +258,7 @@ inbox/task.json 文件每次只能包含以下五种操作之一（不可同时�
 
 ```
 用户: 帮我看下 10.0.1.5 的内存
-AI: [Write inbox/task.json]  {"task_id":"task_1","target":"10.0.1.5","command":"free -h"}
+AI: [Write inbox/task_task_1.json]  {"task_id":"task_1","target":"10.0.1.5","command":"free -h"}
 AI: [Run] ssh-run.exe
 stdout:               total        used        free      shared  buff/cache   available
 stdout: Mem:           7.6G        2.1G        3.2G        112M        2.3G        5.1G

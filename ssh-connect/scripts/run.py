@@ -34,7 +34,7 @@ def _resolve_skill_root(script_dir: Path) -> Path:
 SKILL_ROOT = _resolve_skill_root(SCRIPT_DIR)
 INBOX_DIR = SKILL_ROOT / "inbox"
 OUTBOX_DIR = SKILL_ROOT / "outbox"
-INBOX_FILE = INBOX_DIR / "task.json"
+INBOX_FILE = INBOX_DIR / "task.json"  # 单 agent 默认文件（向后兼容）
 OUTBOX_FILE = OUTBOX_DIR / "result.json"
 CONFIG_FILE = SCRIPT_DIR / "env_config.json"
 TOKEN_FILE = SCRIPT_DIR / "daemon.token"
@@ -527,7 +527,8 @@ def print_result(result: dict, task_id: str):
             status += f" error={result['error_code']}"
         print(status, file=sys.stderr)
 
-    print(f"[完整结果: outbox/result.json]")
+    outbox_file = f"outbox/result_{task_id}.json"
+    print(f"[完整结果: {outbox_file}]")
 
     # 处置提示
     if result.get("blocked"):
@@ -561,9 +562,9 @@ def main():
                 print(f"JSON 解析失败: {e}", file=sys.stderr)
                 sys.exit(1)
 
-    # 读取 inbox/task.json（只处理这一个文件；inbox 下其他文件忽略，避免误重放）
-    task = _read_task()
-    if task is None:
+    # 扫描 inbox/ 下所有 task_*.json，逐个执行
+    tasks = _scan_inbox()
+    if not tasks:
         print("没有待执行的任务", file=sys.stderr)
         return
 
@@ -571,14 +572,17 @@ def main():
     token = _load_or_create_token()
     executor = get_executor(token)
 
-    task_id = task.get("task_id", "unknown")
-    result = process_task(task, guard, executor)
-    write_outbox(result)
-    print_result(result, task_id)
+    for task in tasks:
+        task_id = task.get("task_id", "unknown")
+        result = process_task(task, guard, executor)
+        write_outbox(result)
+        print_result(result, task_id)
 
-    # 删除已处理的任务文件，防止下次运行重复执行
-    if INBOX_FILE.exists():
-        INBOX_FILE.unlink()
+        # 删除已处理的任务文件（兼容 task.json 和 task_{task_id}.json）
+        for fname in (f"task_{task_id}.json", "task.json"):
+            inbox_file = INBOX_DIR / fname
+            if inbox_file.exists():
+                inbox_file.unlink()
 
     executor.close()
 
@@ -588,20 +592,27 @@ def ensure_dirs():
     os.makedirs(OUTBOX_DIR, exist_ok=True)
 
 
-def _read_task() -> Optional[dict]:
-    """读取 inbox/task.json。只认这一个固定文件。"""
-    if not INBOX_FILE.exists():
-        return None
-    try:
-        with open(INBOX_FILE, "r", encoding="utf-8") as f:
-            return json.load(f)
-    except json.JSONDecodeError as e:
-        return {"task_id": "task.json", "_parse_error": str(e)}
+def _scan_inbox() -> list:
+    """扫描 inbox/ 下所有 task_*.json 文件，返回任务列表。"""
+    if not INBOX_DIR.exists():
+        return []
+    tasks = []
+    for fname in sorted(os.listdir(str(INBOX_DIR))):
+        if (fname.startswith("task_") or fname == "task.json") and fname.endswith(".json"):
+            fpath = INBOX_DIR / fname
+            try:
+                with open(fpath, "r", encoding="utf-8") as f:
+                    tasks.append(json.load(f))
+            except json.JSONDecodeError:
+                tasks.append({"task_id": fname, "_parse_error": True})
+    return tasks
 
 
 def write_outbox(data: dict):
+    task_id = data.get("task_id", "unknown")
     os.makedirs(OUTBOX_DIR, exist_ok=True)
-    with open(OUTBOX_FILE, "w", encoding="utf-8") as f:
+    outbox_file = OUTBOX_DIR / f"result_{task_id}.json"
+    with open(outbox_file, "w", encoding="utf-8") as f:
         json.dump(data, f, ensure_ascii=False, indent=2)
 
 

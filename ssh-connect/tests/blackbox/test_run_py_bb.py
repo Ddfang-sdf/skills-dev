@@ -21,21 +21,33 @@ SCRIPTS_DIR = os.path.join(os.path.dirname(__file__), '..', '..', 'scripts')
 RUN_PY = os.path.join(SCRIPTS_DIR, 'run.py')
 INBOX_DIR = os.path.join(os.path.dirname(__file__), '..', '..', 'inbox')
 OUTBOX_DIR = os.path.join(os.path.dirname(__file__), '..', '..', 'outbox')
-INBOX_FILE = os.path.join(INBOX_DIR, 'task.json')
-OUTBOX_FILE = os.path.join(OUTBOX_DIR, 'result.json')
+INBOX_FILE_DEFAULT = os.path.join(INBOX_DIR, 'task.json')  # 向后兼容，无效 JSON 等特殊测试用
 
 
 def _write_inbox(data: dict):
-    """写入 inbox/task.json。"""
+    """写入 inbox/task_{task_id}.json。"""
     os.makedirs(INBOX_DIR, exist_ok=True)
-    with open(INBOX_FILE, 'w', encoding='utf-8') as f:
+    task_id = data.get("task_id", "unknown")
+    fpath = os.path.join(INBOX_DIR, f"task_{task_id}.json")
+    with open(fpath, 'w', encoding='utf-8') as f:
         json.dump(data, f, ensure_ascii=False)
 
 
-def _read_outbox() -> dict:
-    """读取 outbox/result.json。"""
-    with open(OUTBOX_FILE, 'r', encoding='utf-8') as f:
-        return json.load(f)
+def _read_outbox(task_id=None) -> dict:
+    """读取 outbox/result_{task_id}.json。task_id 为空时读第一个 result_*.json。"""
+    if task_id:
+        fpath = os.path.join(OUTBOX_DIR, f"result_{task_id}.json")
+        with open(fpath, 'r', encoding='utf-8') as f:
+            return json.load(f)
+    if os.path.exists(OUTBOX_DIR):
+        files = [f for f in os.listdir(OUTBOX_DIR)
+                 if f.startswith("result_") and f.endswith(".json")]
+        if files:
+            # 取最近修改的文件（多任务时最后执行的是目标）
+            latest = max(files, key=lambda f: os.path.getmtime(os.path.join(OUTBOX_DIR, f)))
+            with open(os.path.join(OUTBOX_DIR, latest), 'r', encoding='utf-8') as f:
+                return json.load(f)
+    raise FileNotFoundError("outbox 中无 result_*.json")
 
 
 def _run() -> subprocess.CompletedProcess:
@@ -122,12 +134,13 @@ class TestCommandExecution:
         result = _read_outbox()
 
         assert "hello_blackbox" in proc.stdout
-        assert "[完整结果: outbox/result.json]" in proc.stdout
+        assert "[完整结果: outbox/result_" in proc.stdout
         assert result["success"] == True
         assert result["exit_code"] == 0
         assert "hello_blackbox" in result["stdout"]
         # inbox 文件被删除
-        assert not os.path.exists(INBOX_FILE)
+        assert not os.path.exists(INBOX_FILE_DEFAULT)
+        assert not os.path.exists(os.path.join(INBOX_DIR, "task_task_1.json"))
 
 
 class TestFileUpload:
@@ -313,6 +326,9 @@ class TestCredentialAddRemove:
     """B-P4-06F: credential_add / credential_remove"""
 
     def test_credential_add_remove(self):
+        # 先清理旧环境（避免"已存在"导致 add 失败）
+        _write_inbox({"task_id": "cr0", "env": "remove", "env_name": "192.168.1.202"})
+        _run()
         # add env
         _write_inbox({
             "task_id": "cr1", "env": "add", "env_name": "192.168.1.202",
@@ -329,7 +345,7 @@ class TestCredentialAddRemove:
             "credential": {"name": "deploy", "username": "d", "password": "dp"}
         })
         _run()
-        r1 = _read_outbox()
+        r1 = _read_outbox("cr2")
         assert r1["success"] == True
         # credential_remove
         _write_inbox({
@@ -430,7 +446,7 @@ class TestInvalidJson:
 
     def test_invalid_json_in_inbox(self):
         os.makedirs(INBOX_DIR, exist_ok=True)
-        with open(INBOX_FILE, 'w') as f:
+        with open(INBOX_FILE_DEFAULT, 'w') as f:
             f.write("{bad json")
         proc = _run()
         result = _read_outbox()
