@@ -32,7 +32,7 @@ description: 连接远程服务器执行命令。当用户需要访问远程服�
 
 **所有操作（命令执行、文件传输、会话管理、环境配置）统一为三步调用模式。**
 
-路径约定：`<SKILL_ROOT>` 指本 SKILL.md 所在的目录。脚本会自行定位 `inbox/`、`outbox/`（兼容脚本在 `scripts/` 子目录或 exe 在根目录两种布局），写入时务必写到 `<SKILL_ROOT>/inbox/task_{task_id}.json`。
+路径约定：`<SKILL_ROOT>` 指本 SKILL.md 所在的目录。脚本会自行定位 `inbox/`、`outbox/`（兼容脚本在 `scripts/` 子目录或 exe 在 `bin/` 子目录两种布局），写入时务必写到 `<SKILL_ROOT>/inbox/task_{task_id}.json`。
 
 ### 第一步：Write 任务文件
 
@@ -40,7 +40,7 @@ description: 连接远程服务器执行命令。当用户需要访问远程服�
 
 ### 第二步：执行脚本
 
-- exe 包：Run 工具执行 `<SKILL_ROOT>/ssh-run.exe`
+- exe 包：Run 工具执行 `<SKILL_ROOT>/bin/ssh-run.exe`
 - 源码包：Run 工具执行 `python <SKILL_ROOT>/scripts/run.py`
 
 如果 exe 文件不存在，则使用源码方式。
@@ -259,7 +259,7 @@ inbox/task.json 文件每次只能包含以下五种操作之一（不可同时�
 ```
 用户: 帮我看下 10.0.1.5 的内存
 AI: [Write inbox/task_task_1.json]  {"task_id":"task_1","target":"10.0.1.5","command":"free -h"}
-AI: [Run] ssh-run.exe
+AI: [Run] bin/ssh-run.exe
 stdout:               total        used        free      shared  buff/cache   available
 stdout: Mem:           7.6G        2.1G        3.2G        112M        2.3G        5.1G
 stdout: [完整结果: outbox/result.json]
