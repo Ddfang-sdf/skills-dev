@@ -60,6 +60,8 @@ if _script_dir not in _sys.path:
 
 from command_guard import CommandGuard, CheckResult
 
+DAEMON_VERSION = 1  # 与 ssh_daemon.py 保持一致，升级时递增
+
 
 def _load_or_create_token() -> str:
     """读取 daemon 鉴权 token；不存在则生成（daemon 启动时读取同一文件）。"""
@@ -193,6 +195,9 @@ class DaemonExecutor(Executor):
     def disconnect(self, target: str) -> dict:
         return _normalize_daemon_resp(self._call("disconnect", {"target": target}))
 
+    def ping(self) -> dict:
+        return _normalize_daemon_resp(self._call("ping", {}))
+
     def close(self):
         try:
             self._sock.close()
@@ -284,11 +289,25 @@ class FallbackExecutor(Executor):
 # ---- get_executor ----
 
 def get_executor(token: str):
-    """检测 daemon → 重试拉起 → 降级"""
-    # 1. 直接连接
+    """检测 daemon → 版本校验 → 重试拉起 → 降级"""
+    # 1. 直接连接 + 版本校验
     sock = _try_connect_daemon()
     if sock:
-        return DaemonExecutor(sock, token)
+        # 校验 daemon 版本，不匹配则自动重启
+        de = DaemonExecutor(sock, token)
+        try:
+            ping = de.ping()
+            if ping.get("version") != DAEMON_VERSION:
+                print(f"[INFO] daemon 版本不匹配 (旧版)，自动重启...", file=sys.stderr)
+                _normalize_daemon_resp(de._call("shutdown", {}))
+                time.sleep(1)
+                de.close()
+                sock = None  # 触发下面的重试拉起
+        except Exception:
+            pass  # 旧 daemon 可能不支持 ping/version，同样重启
+        if sock:
+            return de
+        de.close()
 
     # 2. 重试拉起
     for attempt in range(1, MAX_RETRIES + 1):

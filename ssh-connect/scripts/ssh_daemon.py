@@ -24,6 +24,8 @@ if _script_dir not in sys.path:
 
 from ssh_session import SSHSession, ExecuteResult
 
+DAEMON_VERSION = 1  # 升级 daemon 代码时递增此值，run.py 会自动重启旧版 daemon
+
 
 # PyInstaller 打包后 __file__ 指向临时解压目录，用 sys.executable 获取实际 exe 位置
 if getattr(sys, 'frozen', False):
@@ -285,7 +287,7 @@ class DaemonServer:
     # ---- Handlers ----
 
     def _handle_ping(self, params: dict) -> dict:
-        return {"status": "ok"}
+        return {"status": "ok", "version": DAEMON_VERSION}
 
     def _connect_error_result(self, session: SSHSession, host: str) -> dict:
         err = session.connect_error or {"code": "CONNECT_FAILED", "message": f"SSH 连接失败: {host}"}
