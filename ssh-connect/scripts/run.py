@@ -63,7 +63,12 @@ def _load_or_create_token() -> str:
 
 
 def _get_daemon_cmd():
-    """获取启动 daemon 的命令。支持 exe 打包和源码运行两种模式。"""
+    """获取启动 daemon 的命令。依次检查 bin/、scripts/、源码。"""
+    # bin/ 优先（exe 发布包）
+    daemon_exe = SKILL_ROOT / "bin" / "ssh-daemon.exe"
+    if daemon_exe.exists():
+        return [str(daemon_exe)]
+    # scripts/ 兼容旧布局
     daemon_exe = SCRIPT_DIR / "ssh-daemon.exe"
     if daemon_exe.exists():
         return [str(daemon_exe)]

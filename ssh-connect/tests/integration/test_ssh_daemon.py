@@ -23,11 +23,13 @@ _SCRIPTS_DIR = os.path.dirname(DAEMON_SCRIPT)
 
 
 def _get_daemon_cmd():
-    """获取启动 daemon 的命令。支持 exe 和源码两种模式。"""
-    daemon_exe = os.path.join(_SCRIPTS_DIR, "ssh-daemon.exe")
-    if os.path.exists(daemon_exe):
-        return [daemon_exe]
-    return _get_daemon_cmd()
+    """获取启动 daemon 的命令。依次检查 bin/、scripts/、源码。"""
+    skill_root = os.path.dirname(_SCRIPTS_DIR)
+    for exe_dir in (os.path.join(skill_root, "bin"), _SCRIPTS_DIR):
+        daemon_exe = os.path.join(exe_dir, "ssh-daemon.exe")
+        if os.path.exists(daemon_exe):
+            return [daemon_exe]
+    return [sys.executable, DAEMON_SCRIPT]
 
 
 def _read_token():

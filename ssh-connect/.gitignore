@@ -10,9 +10,7 @@ __pycache__/
 .pytest_cache/
 *.spec
 
-# Exe (too large, users build themselves)
-scripts/ssh-run.exe
-scripts/ssh-daemon.exe
+# Exe build artifacts (exe distributed via bin/)
 
 # IDE
 .vscode/
