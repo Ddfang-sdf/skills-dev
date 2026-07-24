@@ -55,10 +55,10 @@ def _cleanup():
 
 
 @pytest.fixture(autouse=True)
-def setup_teardown():
-    """每个用例前后清理 inbox/outbox，并重置 daemon 状态。"""
+def setup_teardown(daemon_session):
+    """每个用例前后清理 inbox/outbox，并重置 daemon 状态。
+    依赖 session 级 daemon fixture 确保 daemon 已启动。"""
     _cleanup()
-    # 重置 daemon session pool，消除跨测试耦合
     _reset_daemon()
     yield
     _cleanup()
@@ -89,6 +89,24 @@ def _reset_daemon():
 # ============================================================
 # 正常场景
 # ============================================================
+
+class TestDaemonStartup:
+    """验证 daemon 成功启动（非降级），覆盖 ModuleNotFoundError 等导入问题。"""
+
+    def test_daemon_started_not_fallback(self):
+        _write_inbox({
+            "task_id": "task_ds", "target": "172.18.98.56",
+            "command": "echo daemon_check", "timeout": 10,
+        })
+        proc = _run()
+        result = _read_outbox()
+        assert result["success"] == True
+        # 关键断言：stderr 中不应出现降级信息
+        assert "降级为直连模式" not in proc.stderr, \
+            f"daemon 启动失败，走了降级路径。stderr={proc.stderr}"
+        assert "daemon 无法启动" not in proc.stderr, \
+            f"daemon 拉起失败。stderr={proc.stderr}"
+
 
 class TestCommandExecution:
     """B-P4-01: 完整 Write → Run → Read 链路"""

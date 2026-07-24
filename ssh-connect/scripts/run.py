@@ -44,6 +44,12 @@ DAEMON_SCRIPT = SCRIPT_DIR / "ssh_daemon.py"
 MAX_RETRIES = 3
 RETRY_DELAY = 2
 
+# 确保 scripts/ 在 sys.path 中（不同调用方式下路径可能不同）
+import sys as _sys
+_script_dir = os.path.dirname(os.path.abspath(__file__))
+if _script_dir not in _sys.path:
+    _sys.path.insert(0, _script_dir)
+
 from command_guard import CommandGuard, CheckResult
 
 

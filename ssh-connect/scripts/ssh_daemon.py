@@ -17,6 +17,11 @@ import uuid
 from dataclasses import dataclass
 from typing import Optional
 
+# 确保 scripts/ 在 sys.path 中（subprocess 启动时可能不包含）
+_script_dir = os.path.dirname(os.path.abspath(__file__))
+if _script_dir not in sys.path:
+    sys.path.insert(0, _script_dir)
+
 from ssh_session import SSHSession, ExecuteResult
 
 
@@ -24,7 +29,7 @@ from ssh_session import SSHSession, ExecuteResult
 if getattr(sys, 'frozen', False):
     SCRIPT_DIR = os.path.dirname(os.path.abspath(sys.executable))
 else:
-    SCRIPT_DIR = os.path.dirname(os.path.abspath(__file__))
+    SCRIPT_DIR = _script_dir
 CONFIG_FILE = os.path.join(SCRIPT_DIR, "env_config.json")
 TOKEN_FILE = os.path.join(SCRIPT_DIR, "daemon.token")
 

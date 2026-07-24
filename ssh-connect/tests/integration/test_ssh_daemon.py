@@ -66,31 +66,11 @@ def _is_port_open(host, port):
 
 
 @pytest.fixture(scope="module")
-def daemon():
-    """模块级 fixture: 启动 daemon，测试结束后关闭。"""
-    proc = subprocess.Popen(
-        _get_daemon_cmd(),
-        stdout=subprocess.PIPE, stderr=subprocess.PIPE
-    )
-    # 等待端口就绪
-    deadline = time.time() + 10
-    while time.time() < deadline:
-        if _is_port_open(DAEMON_HOST, DAEMON_PORT):
-            break
-        time.sleep(0.2)
-    else:
-        proc.kill()
-        pytest.fail("daemon 启动超时")
-    yield proc
-    # 清理
-    try:
-        sock = socket.create_connection((DAEMON_HOST, DAEMON_PORT), timeout=2)
-        _send_request(sock, "shutdown")
-        sock.close()
-    except Exception:
-        pass
-    proc.terminate()
-    proc.wait(timeout=5)
+def daemon(daemon_session):
+    """模块级 fixture: 依赖 session 级 daemon，确保存活即可。"""
+    if not _is_port_open(DAEMON_HOST, DAEMON_PORT):
+        pytest.fail("daemon 未运行")
+    yield
 
 
 @pytest.fixture
