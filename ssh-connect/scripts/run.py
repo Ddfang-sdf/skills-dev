@@ -138,9 +138,9 @@ class Executor:
     def execute(self, target: str, command: str, timeout: int = 30,
                 escalate: bool = False, as_credential: str = None) -> dict:
         raise NotImplementedError
-    def upload(self, target: str, local: str, remote: str, as_credential: str = None) -> dict:
+    def upload(self, target: str, files, as_credential: str = None) -> dict:
         raise NotImplementedError
-    def download(self, target: str, remote: str, local: str, as_credential: str = None) -> dict:
+    def download(self, target: str, files, as_credential: str = None) -> dict:
         raise NotImplementedError
     def list_sessions(self) -> dict:
         raise NotImplementedError
@@ -197,25 +197,25 @@ class DaemonExecutor(Executor):
             return fb_result
         return result
 
-    def upload(self, target: str, local: str, remote: str, as_credential: str = None) -> dict:
-        params = {"target": target, "local": local, "remote": remote}
+    def upload(self, target: str, files, as_credential: str = None) -> dict:
+        params = {"target": target, "upload": files}
         if as_credential:
             params["as"] = as_credential
         try:
             return _normalize_daemon_resp(self._call("upload", params))
         except (TimeoutError, ConnectionError, OSError) as e:
             print(f"[WARN] daemon 无响应，降级为直连: {e}", file=sys.stderr)
-            return FallbackExecutor().upload(target, local, remote, as_credential)
+            return FallbackExecutor().upload(target, files, as_credential)
 
-    def download(self, target: str, remote: str, local: str, as_credential: str = None) -> dict:
-        params = {"target": target, "remote": remote, "local": local}
+    def download(self, target: str, files, as_credential: str = None) -> dict:
+        params = {"target": target, "download": files}
         if as_credential:
             params["as"] = as_credential
         try:
             return _normalize_daemon_resp(self._call("download", params))
         except (TimeoutError, ConnectionError, OSError) as e:
             print(f"[WARN] daemon 无响应，降级为直连: {e}", file=sys.stderr)
-            return FallbackExecutor().download(target, remote, local, as_credential)
+            return FallbackExecutor().download(target, files, as_credential)
 
     def list_sessions(self) -> dict:
         return _normalize_daemon_resp(self._call("list_sessions", {}))
@@ -280,24 +280,38 @@ class FallbackExecutor(Executor):
             raise RuntimeError(f"{err.get('code', 'CONNECT_FAILED')}: {err.get('message', '连接失败')}")
         return session
 
-    def upload(self, target: str, local: str, remote: str, as_credential: str = None) -> dict:
+    def upload(self, target: str, files, as_credential: str = None) -> dict:
+        if not isinstance(files, list):
+            files = [files]
         session = None
+        errors = []
         try:
             session = self._get_connection(target, as_credential)
-            ok, message = session.upload(local, remote)
-            return {"success": ok, "stderr": message}
+            for f in files:
+                ok, msg = session.upload(f.get("local", ""), f.get("remote", ""))
+                if not ok:
+                    errors.append({"local": f.get("local"), "remote": f.get("remote"), "error": msg})
+            return {"success": len(errors) == 0, "total": len(files),
+                    "failed": len(errors), "errors": errors}
         except Exception as e:
             return {"success": False, "stderr": str(e)}
         finally:
             if session:
                 session.close()
 
-    def download(self, target: str, remote: str, local: str, as_credential: str = None) -> dict:
+    def download(self, target: str, files, as_credential: str = None) -> dict:
+        if not isinstance(files, list):
+            files = [files]
         session = None
+        errors = []
         try:
             session = self._get_connection(target, as_credential)
-            ok, message = session.download(remote, local)
-            return {"success": ok, "stderr": message}
+            for f in files:
+                ok, msg = session.download(f.get("remote", ""), f.get("local", ""))
+                if not ok:
+                    errors.append({"remote": f.get("remote"), "local": f.get("local"), "error": msg})
+            return {"success": len(errors) == 0, "total": len(files),
+                    "failed": len(errors), "errors": errors}
         except Exception as e:
             return {"success": False, "stderr": str(e)}
         finally:
@@ -393,25 +407,27 @@ def process_task(task: dict, guard: CommandGuard, executor: Executor) -> dict:
         else:
             return {"task_id": task_id, "success": False, "error": f"未知 session 操作: {session_action}"}
 
-    # 文件传输（先做远端路径敏感检查）
+    # 文件传输（先做远端路径敏感检查，批量逐个检查）
     if "upload" in task:
         u = task["upload"]
-        check = guard.check_transfer(u.get("remote", ""))
-        if not CommandGuard.can_execute(check.level, task.get("force", False)):
-            return _blocked_result(task_id, check)
-        result = executor.upload(task.get("target", ""), u.get("local", ""),
-                                 u.get("remote", ""), as_credential=task.get("as"))
+        files = u if isinstance(u, list) else [u]
+        for f in files:
+            check = guard.check_transfer(f.get("remote", ""))
+            if not CommandGuard.can_execute(check.level, task.get("force", False)):
+                return _blocked_result(task_id, check)
+        result = executor.upload(task.get("target", ""), u, as_credential=task.get("as"))
         if "success" not in result:
             result["success"] = False
         result["task_id"] = task_id
         return result
     if "download" in task:
         d = task["download"]
-        check = guard.check_transfer(d.get("remote", ""))
-        if not CommandGuard.can_execute(check.level, task.get("force", False)):
-            return _blocked_result(task_id, check)
-        result = executor.download(task.get("target", ""), d.get("remote", ""),
-                                   d.get("local", ""), as_credential=task.get("as"))
+        files = d if isinstance(d, list) else [d]
+        for f in files:
+            check = guard.check_transfer(f.get("remote", ""))
+            if not CommandGuard.can_execute(check.level, task.get("force", False)):
+                return _blocked_result(task_id, check)
+        result = executor.download(task.get("target", ""), d, as_credential=task.get("as"))
         if "success" not in result:
             result["success"] = False
         result["task_id"] = task_id

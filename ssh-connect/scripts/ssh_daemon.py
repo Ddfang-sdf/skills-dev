@@ -364,33 +364,65 @@ class DaemonServer:
 
     def _handle_upload(self, params: dict) -> dict:
         target = params.get("target", "")
-        local = params.get("local", "")
-        remote = params.get("remote", "")
         as_credential = params.get("as")
+
+        # 批量：upload 为数组
+        files = params.get("upload")
+        if files is None:
+            # 兼容单文件：旧格式 local/remote 顶层字段
+            files = [{"local": params.get("local", ""), "remote": params.get("remote", "")}]
+        if not isinstance(files, list):
+            files = [files]
+
         host, credential_name, username, password, sudo_password, via_config = \
             self._resolve_target(target, as_credential)
-
         session, err = self._get_or_create_session(
             host, 22, credential_name, username, password, sudo_password, via_config)
         if err:
             return err
-        ok, message = session.upload(local, remote)
-        return {"success": ok, "stderr": message}
+
+        errors = []
+        for f in files:
+            ok, message = session.upload(f.get("local", ""), f.get("remote", ""))
+            if not ok:
+                errors.append({"local": f.get("local"), "remote": f.get("remote"), "error": message})
+
+        return {
+            "success": len(errors) == 0,
+            "total": len(files),
+            "failed": len(errors),
+            "errors": errors,
+        }
 
     def _handle_download(self, params: dict) -> dict:
         target = params.get("target", "")
-        remote = params.get("remote", "")
-        local = params.get("local", "")
         as_credential = params.get("as")
+
+        files = params.get("download")
+        if files is None:
+            files = [{"remote": params.get("remote", ""), "local": params.get("local", "")}]
+        if not isinstance(files, list):
+            files = [files]
+
         host, credential_name, username, password, sudo_password, via_config = \
             self._resolve_target(target, as_credential)
-
         session, err = self._get_or_create_session(
             host, 22, credential_name, username, password, sudo_password, via_config)
         if err:
             return err
-        ok, message = session.download(remote, local)
-        return {"success": ok, "stderr": message}
+
+        errors = []
+        for f in files:
+            ok, message = session.download(f.get("remote", ""), f.get("local", ""))
+            if not ok:
+                errors.append({"remote": f.get("remote"), "local": f.get("local"), "error": message})
+
+        return {
+            "success": len(errors) == 0,
+            "total": len(files),
+            "failed": len(errors),
+            "errors": errors,
+        }
 
     def _handle_disconnect(self, params: dict) -> dict:
         target = params.get("target", "")
