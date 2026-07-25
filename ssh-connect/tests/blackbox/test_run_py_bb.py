@@ -102,6 +102,28 @@ def _reset_daemon():
 # 正常场景
 # ============================================================
 
+class TestFallback:
+    """验证 daemon 执行失败后自动降级直连。"""
+
+    def test_daemon_error_triggers_fallback(self):
+        """daemon 返回执行错误时，自动降级为直连重试。"""
+        # 前置：确保 daemon 存活
+        _write_inbox({"task_id": "fb_pre", "target": "172.18.98.56", "command": "echo pre", "timeout": 10})
+        _run()
+        assert _read_outbox("fb_pre")["success"] == True, "daemon 不通"
+
+        # 执行 sleep 60 带 timeout=2 — daemon 会超时返回 error
+        # DaemonExecutor detect error → fallback → FallbackExecutor 直连也会超时
+        # 但重要的是 stderr 中有 [WARN] 降级日志
+        _write_inbox({"task_id": "fb_test", "target": "172.18.98.56", "command": "sleep 60", "timeout": 2})
+        proc = _run()
+        result = _read_outbox("fb_test")
+
+        # daemon 超时后应该触发降级，stderr 可见 [WARN]
+        assert ("[WARN]" in proc.stderr or "降级" in proc.stderr), \
+            f"未触发降级: stderr={proc.stderr[:200]}"
+
+
 class TestDaemonStartup:
     """验证 daemon 成功启动（非降级），覆盖 ModuleNotFoundError 等导入问题。"""
 

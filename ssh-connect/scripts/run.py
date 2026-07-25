@@ -174,19 +174,41 @@ class DaemonExecutor(Executor):
             params["escalate"] = True
         if as_credential:
             params["as"] = as_credential
-        return _normalize_daemon_resp(self._call("execute", params))
+        try:
+            result = _normalize_daemon_resp(self._call("execute", params))
+        except (TimeoutError, ConnectionError, OSError) as e:
+            print(f"[WARN] daemon 无响应，降级为直连: {e}", file=sys.stderr)
+            result = {"daemon_failed": True}
+        # daemon 返回成功 → 直接返回；否则降级
+        if result.get("success") or result.get("blocked"):
+            return result
+        if result.get("daemon_failed") or result.get("error_code"):
+            print(f"[WARN] daemon 执行失败(error_code={result.get('error_code')})，降级为直连", file=sys.stderr)
+            fallback = FallbackExecutor()
+            fb_result = fallback.execute(target, command, timeout, escalate, as_credential)
+            fb_result["_fallback"] = True
+            return fb_result
+        return result
 
     def upload(self, target: str, local: str, remote: str, as_credential: str = None) -> dict:
         params = {"target": target, "local": local, "remote": remote}
         if as_credential:
             params["as"] = as_credential
-        return _normalize_daemon_resp(self._call("upload", params))
+        try:
+            return _normalize_daemon_resp(self._call("upload", params))
+        except (TimeoutError, ConnectionError, OSError) as e:
+            print(f"[WARN] daemon 无响应，降级为直连: {e}", file=sys.stderr)
+            return FallbackExecutor().upload(target, local, remote, as_credential)
 
     def download(self, target: str, remote: str, local: str, as_credential: str = None) -> dict:
         params = {"target": target, "remote": remote, "local": local}
         if as_credential:
             params["as"] = as_credential
-        return _normalize_daemon_resp(self._call("download", params))
+        try:
+            return _normalize_daemon_resp(self._call("download", params))
+        except (TimeoutError, ConnectionError, OSError) as e:
+            print(f"[WARN] daemon 无响应，降级为直连: {e}", file=sys.stderr)
+            return FallbackExecutor().download(target, remote, local, as_credential)
 
     def list_sessions(self) -> dict:
         return _normalize_daemon_resp(self._call("list_sessions", {}))
