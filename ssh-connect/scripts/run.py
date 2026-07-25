@@ -148,6 +148,7 @@ class DaemonExecutor(Executor):
 
     def __init__(self, sock: socket.socket, token: str):
         self._sock = sock
+        self._sock.settimeout(3600)  # 最长命令超时，避免 readline 无限阻塞
         self._file = sock.makefile("rw", encoding="utf-8")
         import threading
         self._lock = threading.Lock()
