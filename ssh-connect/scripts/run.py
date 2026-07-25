@@ -582,16 +582,23 @@ def main():
 
     for task in tasks:
         task_id = task.get("task_id", "unknown")
-        result = process_task(task, guard, executor)
+        inbox_files_to_delete = [INBOX_DIR / f
+            for f in (f"task_{task_id}.json", f"{task_id}.json", "task.json")
+            if (INBOX_DIR / f).exists()]
+
+        try:
+            result = process_task(task, guard, executor)
+        except Exception as e:
+            result = {"task_id": task_id, "success": False,
+                      "stderr": f"脚本异常: {e}", "exit_code": 1}
         write_outbox(result)
         print_result(result, task_id)
 
-        # 删除已处理的任务文件
-        # 文件名可能为 task_{task_id}.json 或 task_id 本身即为文件名
-        for fname in (f"task_{task_id}.json", f"{task_id}.json", "task.json"):
-            inbox_file = INBOX_DIR / fname
-            if inbox_file.exists():
+        for inbox_file in inbox_files_to_delete:
+            try:
                 inbox_file.unlink()
+            except Exception:
+                pass
 
     executor.close()
 
