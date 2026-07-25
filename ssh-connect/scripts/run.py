@@ -36,7 +36,14 @@ INBOX_DIR = SKILL_ROOT / "inbox"
 OUTBOX_DIR = SKILL_ROOT / "outbox"
 INBOX_FILE = INBOX_DIR / "task.json"  # 单 agent 默认文件（向后兼容）
 OUTBOX_FILE = OUTBOX_DIR / "result.json"
-CONFIG_FILE = SCRIPT_DIR / "env_config.json"
+# config 优先搜 scripts/，exe 模式下 fallback 到 bin/——与 daemon 保持一致
+def _resolve_config_file():
+    for d in (SKILL_ROOT / "scripts", SCRIPT_DIR, SKILL_ROOT):
+        cfg = d / "env_config.json"
+        if cfg.exists():
+            return cfg
+    return SCRIPT_DIR / "env_config.json"
+CONFIG_FILE = _resolve_config_file()
 # token 文件放在 env_config.json 同一目录（daemon 也读同一位置）
 def _resolve_token_file():
     """找到 env_config.json 所在目录，token 文件放同目录。"""

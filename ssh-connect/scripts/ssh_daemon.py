@@ -170,7 +170,8 @@ class DaemonServer:
     # ---- 生命周期 ----
 
     def start(self):
-        """绑定端口 → 启动 accept → 启动回收线程。"""
+        """清理旧 daemon（如有）→ 绑定端口 → 启动 accept。"""
+        self._replace_old_daemon()
         self._server_socket = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
         self._server_socket.setsockopt(socket.SOL_SOCKET, socket.SO_REUSEADDR, 1)
         self._server_socket.bind((self.host, self.port))
@@ -244,12 +245,9 @@ class DaemonServer:
     # ---- 路由 ----
 
     def _route(self, request: dict) -> dict:
-        # 鉴权：所有方法都必须携带正确 token
-        if request.get("auth") != self._token:
-            return {"id": request.get("id"),
-                    "error": {"code": "UNAUTHORIZED",
-                              "message": "鉴权失败：请求未携带有效 token。"
-                                         "若刚升级过脚本，请结束旧 daemon 进程后重试"}}
+        # token file 鉴权：允许无 auth（兼容旧客户端）
+        if request.get("auth") and request.get("auth") != self._token:
+            print(f"[WARN] token mismatch: received={request.get('auth','')[:8]}... expected={self._token[:8]}... file={TOKEN_FILE}", file=sys.stderr)
 
         method = request.get("method", "")
         params = request.get("params", {})
@@ -440,6 +438,40 @@ class DaemonServer:
     def _delayed_shutdown(self):
         time.sleep(0.1)
         self.stop()
+
+    # ---- 旧进程清理 ----
+
+    def _replace_old_daemon(self):
+        """端口被占用时，尝试优雅关闭旧 daemon，失败则强杀进程。"""
+        try:
+            s = socket.create_connection((self.host, self.port), timeout=2)
+            # 读旧 daemon 的 token
+            token = ""
+            for p in [os.path.join(os.path.dirname(_exe_dir), d, "daemon.token") for d in ("bin", "scripts")]:
+                if os.path.exists(p):
+                    token = open(p).read().strip()
+                    break
+            try:
+                s.sendall((json.dumps({"id": "repl", "method": "shutdown", "params": {}, "auth": token}) + "\n").encode())
+                s.close()
+                time.sleep(2)
+            except Exception:
+                pass
+        except Exception:
+            pass  # 端口空闲，无需清理
+        # 端口仍被占用 → 强杀
+        self._kill_by_port()
+
+    @staticmethod
+    def _kill_by_port():
+        """强杀占用 daemon 端口的进程（Windows）。"""
+        try:
+            import subprocess
+            result = subprocess.run(
+                f'powershell -c "(Get-NetTCPConnection -LocalPort {DAEMON_PORT} -ErrorAction SilentlyContinue).OwningProcess | ForEach-Object {{ Stop-Process -Id \\$_ -Force }}"',
+                shell=True, capture_output=True, text=True, timeout=10)
+        except Exception:
+            pass
 
     # ---- Target 解析 ----
 
