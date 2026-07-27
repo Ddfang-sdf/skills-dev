@@ -87,6 +87,7 @@ inbox/task.json 文件每次只能包含以下五种操作之一（不可同时�
 
 ### 2. 上传文件
 
+单文件：
 ```json
 {
     "task_id": "task_2",
@@ -98,13 +99,28 @@ inbox/task.json 文件每次只能包含以下五种操作之一（不可同时�
 }
 ```
 
+批量（数组）：
+```json
+{
+    "task_id": "task_2",
+    "target": "10.0.1.5",
+    "upload": [
+        {"local": "C:/Users/xxx/a.jar", "remote": "/opt/a.jar"},
+        {"local": "C:/Users/xxx/b.jar", "remote": "/opt/b.jar"}
+    ]
+}
+```
+
+批量结果含 `total`/`failed`/`errors` 统计，部分失败时 `success=false` 且 `errors` 列出每个失败项的原因。
+
 - `local` 必须是 Windows 绝对路径，使用正斜杠
 - `remote` 是远程 Linux 路径
 - 传输以登录用户的权限执行，**不支持 escalate**。若目标目录无写权限，先上传到当前用户 home 目录，再用 `escalate: true` 执行 `mv` 移动到目标位置
-- 支持可选字段 `as`（指定凭证）与 `force`（远端路径命中敏感位置时，按 force 纪律放行，见"危险命令控制"）
+- 支持可选字段 `as`（指定凭证）与 `force`（远端路径命中敏感位置时，按 force 纪律放行）
 
 ### 3. 下载文件
 
+单文件：
 ```json
 {
     "task_id": "task_3",
@@ -116,7 +132,7 @@ inbox/task.json 文件每次只能包含以下五种操作之一（不可同时�
 }
 ```
 
-同样支持可选字段 `as` 与 `force`。
+批量（数组格式同上）。同样支持可选字段 `as` 与 `force`。
 
 ### 4. 会话管理
 
