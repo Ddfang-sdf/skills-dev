@@ -7,7 +7,6 @@ import socket
 import subprocess
 import sys
 import time
-import uuid
 from pathlib import Path
 from typing import Optional
 
@@ -44,17 +43,10 @@ def _resolve_config_file():
             return cfg
     return SCRIPT_DIR / "env_config.json"
 CONFIG_FILE = _resolve_config_file()
-# token 文件放在 env_config.json 同一目录（daemon 也读同一位置）
-def _resolve_token_file():
-    """找到 env_config.json 所在目录，token 文件放同目录。"""
-    for d in (SCRIPT_DIR, SKILL_ROOT / "scripts", SKILL_ROOT):
-        cfg = d / "env_config.json"
-        if cfg.exists():
-            return d / "daemon.token"
-    return SCRIPT_DIR / "daemon.token"
-TOKEN_FILE = _resolve_token_file()
 DAEMON_HOST = "127.0.0.1"
-DAEMON_PORT = 19522
+# 端口文件：与 env_config.json 同目录，记录本 skill 实例独占的 daemon 端口。
+# 实现多 Agent 隔离（不同安装目录各自一个 daemon，互不干扰）。
+PORT_FILE = CONFIG_FILE.parent / "daemon.port"
 DAEMON_SCRIPT = SCRIPT_DIR / "ssh_daemon.py"
 MAX_RETRIES = 3
 RETRY_DELAY = 2
@@ -66,21 +58,6 @@ if _script_dir not in _sys.path:
     _sys.path.insert(0, _script_dir)
 
 from command_guard import CommandGuard, CheckResult
-
-
-def _load_or_create_token() -> str:
-    """读取 daemon 鉴权 token；不存在则生成（daemon 启动时读取同一文件）。"""
-    if TOKEN_FILE.exists():
-        token = TOKEN_FILE.read_text(encoding="utf-8").strip()
-        if token:
-            return token
-    token = uuid.uuid4().hex
-    TOKEN_FILE.write_text(token, encoding="utf-8")
-    try:
-        os.chmod(TOKEN_FILE, 0o600)
-    except Exception:
-        pass
-    return token
 
 
 def _get_daemon_cmd():
@@ -105,17 +82,27 @@ def _load_config() -> dict:
     return {"environments": {}}
 
 
-def _try_connect_daemon() -> Optional[socket.socket]:
+def _resolve_daemon_port() -> Optional[int]:
+    """读取 daemon.port 文件，返回本实例的 daemon 端口。文件不存在返回 None。"""
+    if PORT_FILE.exists():
+        try:
+            return int(PORT_FILE.read_text(encoding="utf-8").strip())
+        except Exception:
+            return None
+    return None
+
+
+def _try_connect_daemon(port: int) -> Optional[socket.socket]:
     try:
-        sock = socket.create_connection((DAEMON_HOST, DAEMON_PORT), timeout=2)
+        sock = socket.create_connection((DAEMON_HOST, port), timeout=2)
         return sock
     except Exception:
         return None
 
 
-def _is_daemon_port_open() -> bool:
+def _is_daemon_port_open(port: int) -> bool:
     try:
-        sock = socket.create_connection((DAEMON_HOST, DAEMON_PORT), timeout=0.5)
+        sock = socket.create_connection((DAEMON_HOST, port), timeout=0.5)
         sock.close()
         return True
     except Exception:
@@ -151,22 +138,20 @@ class Executor:
 
 
 class DaemonExecutor(Executor):
-    """通过 daemon TCP 连接执行（携带 token 鉴权）。"""
+    """通过 daemon TCP 连接执行。"""
 
-    def __init__(self, sock: socket.socket, token: str):
+    def __init__(self, sock: socket.socket):
         self._sock = sock
         self._sock.settimeout(3600)  # 最长命令超时，避免 readline 无限阻塞
         self._file = sock.makefile("rw", encoding="utf-8")
         import threading
         self._lock = threading.Lock()
         self._req_id = 0
-        self._token = token
 
     def _call(self, method: str, params: dict) -> dict:
         with self._lock:
             self._req_id += 1
-            req = {"id": f"req-{self._req_id}", "method": method,
-                   "params": params, "auth": self._token}
+            req = {"id": f"req-{self._req_id}", "method": method, "params": params}
             self._file.write(json.dumps(req, ensure_ascii=False) + "\n")
             self._file.flush()
             line = self._file.readline()
@@ -327,14 +312,20 @@ class FallbackExecutor(Executor):
 
 # ---- get_executor ----
 
-def get_executor(token: str):
-    """检测 daemon → 重试拉起 → 降级"""
-    # 1. 直接连接
-    sock = _try_connect_daemon()
-    if sock:
-        return DaemonExecutor(sock, token)
+def get_executor():
+    """按本实例的端口连接 daemon → 连不上则拉起 → 仍失败则降级。
 
-    # 2. 重试拉起
+    端口来源：daemon.port 文件（由 daemon 绑定成功后写入）。
+    多 Agent 隔离：不同 skill 安装目录各有自己的端口文件，互不干扰。
+    """
+    # 1. 端口文件存在 → 直接连接
+    port = _resolve_daemon_port()
+    if port:
+        sock = _try_connect_daemon(port)
+        if sock:
+            return DaemonExecutor(sock)
+
+    # 2. 无端口文件或连不上 → 重试拉起 daemon（daemon 会自动选空闲端口并写文件）
     for attempt in range(1, MAX_RETRIES + 1):
         try:
             subprocess.Popen(
@@ -344,11 +335,12 @@ def get_executor(token: str):
             )
             deadline = time.time() + 5
             while time.time() < deadline:
-                if _is_daemon_port_open():
-                    sock = _try_connect_daemon()
+                port = _resolve_daemon_port()
+                if port:
+                    sock = _try_connect_daemon(port)
                     if sock:
-                        print(f"[INFO] daemon 已启动 (尝试 {attempt} 次后成功)", file=sys.stderr)
-                        return DaemonExecutor(sock, token)
+                        print(f"[INFO] daemon 已启动 (尝试 {attempt} 次后成功, 端口 {port})", file=sys.stderr)
+                        return DaemonExecutor(sock)
                 time.sleep(0.2)
         except Exception as e:
             print(f"[WARN] daemon 启动失败 (第 {attempt}/{MAX_RETRIES} 次): {e}", file=sys.stderr)
@@ -623,8 +615,7 @@ def main():
         return
 
     guard = CommandGuard()
-    token = _load_or_create_token()
-    executor = get_executor(token)
+    executor = get_executor()
 
     for task in tasks:
         task_id = task.get("task_id", "unknown")

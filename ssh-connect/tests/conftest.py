@@ -12,8 +12,18 @@ if _scripts_dir not in sys.path:
     sys.path.insert(0, _scripts_dir)
 
 DAEMON_HOST = "127.0.0.1"
-DAEMON_PORT = 19522
 _skill_root = os.path.dirname(_scripts_dir)
+PORT_FILE = os.path.join(_scripts_dir, "daemon.port")
+
+
+def _resolve_daemon_port():
+    """读取 daemon.port 文件，不存在返回 None。"""
+    if os.path.exists(PORT_FILE):
+        try:
+            return int(open(PORT_FILE).read().strip())
+        except Exception:
+            return None
+    return None
 
 
 def _get_daemon_cmd():
@@ -26,8 +36,11 @@ def _get_daemon_cmd():
 
 
 def _is_daemon_alive():
+    port = _resolve_daemon_port()
+    if not port:
+        return False
     try:
-        s = socket.create_connection((DAEMON_HOST, DAEMON_PORT), timeout=1)
+        s = socket.create_connection((DAEMON_HOST, port), timeout=1)
         s.close()
         return True
     except Exception:
@@ -57,11 +70,11 @@ def daemon_session():
     # 清理
     try:
         import json
-        token_file = os.path.join(_scripts_dir, "daemon.token")
-        token = open(token_file).read().strip() if os.path.exists(token_file) else ""
-        s = socket.create_connection((DAEMON_HOST, DAEMON_PORT), timeout=2)
-        s.sendall((json.dumps({"id": "ci", "method": "shutdown", "params": {}, "auth": token}) + "\n").encode())
-        s.close()
+        port = _resolve_daemon_port()
+        if port:
+            s = socket.create_connection((DAEMON_HOST, port), timeout=2)
+            s.sendall((json.dumps({"id": "ci", "method": "shutdown", "params": {}, "auth": ""}) + "\n").encode())
+            s.close()
     except Exception:
         pass
     proc.wait(timeout=5)

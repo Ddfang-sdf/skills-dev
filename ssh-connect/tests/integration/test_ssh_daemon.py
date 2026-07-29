@@ -17,9 +17,19 @@ import pytest
 
 
 DAEMON_HOST = "127.0.0.1"
-DAEMON_PORT = 19522
 DAEMON_SCRIPT = os.path.join(os.path.dirname(__file__), '..', '..', 'scripts', 'ssh_daemon.py')
 _SCRIPTS_DIR = os.path.dirname(DAEMON_SCRIPT)
+PORT_FILE = os.path.join(_SCRIPTS_DIR, "daemon.port")
+
+
+def _daemon_port():
+    """读取 daemon.port 文件获取 daemon 端口。"""
+    if os.path.exists(PORT_FILE):
+        try:
+            return int(open(PORT_FILE).read().strip())
+        except Exception:
+            return None
+    return None
 
 
 def _get_daemon_cmd():
@@ -68,7 +78,8 @@ def _is_port_open(host, port):
 @pytest.fixture(scope="module")
 def daemon(daemon_session):
     """模块级 fixture: 依赖 session 级 daemon，确保存活即可。"""
-    if not _is_port_open(DAEMON_HOST, DAEMON_PORT):
+    port = _daemon_port()
+    if not port or not _is_port_open(DAEMON_HOST, port):
         pytest.fail("daemon 未运行")
     yield
 
@@ -76,7 +87,7 @@ def daemon(daemon_session):
 @pytest.fixture
 def daemon_sock(daemon):
     """每个测试获取一个到 daemon 的 TCP 连接。"""
-    sock = socket.create_connection((DAEMON_HOST, DAEMON_PORT), timeout=5)
+    sock = socket.create_connection((DAEMON_HOST, _daemon_port()), timeout=5)
     yield sock
     sock.close()
 
@@ -156,16 +167,34 @@ class TestReset:
 
 
 class TestShutdown:
-    """I-P3-05: shutdown 关闭 daemon — 使用独立 daemon 进程，避免影响共享 daemon"""
+    """I-P3-05: shutdown 关闭 daemon — 在临时 skill 目录启动独立 daemon，不影响共享 daemon"""
 
-    def test_shutdown_response(self):
-        # 启动独立 daemon
+    def test_shutdown_response(self, tmp_path):
+        # 在独立 skill 目录准备环境（端口隔离，不影响共享 daemon）
+        scripts_dir = tmp_path / "scripts"
+        scripts_dir.mkdir()
+        import shutil
+        for f in ("ssh_daemon.py", "ssh_session.py"):
+            shutil.copy(os.path.join(_SCRIPTS_DIR, f), scripts_dir / f)
+        shutil.copy(os.path.join(_SCRIPTS_DIR, "env_config.json"), scripts_dir / "env_config.json")
+
         proc = subprocess.Popen(
-            _get_daemon_cmd(),
-            stdout=subprocess.PIPE, stderr=subprocess.PIPE
+            [sys.executable, str(scripts_dir / "ssh_daemon.py")],
+            stdout=subprocess.PIPE, stderr=subprocess.PIPE,
+            cwd=str(scripts_dir)
         )
-        time.sleep(2)
-        sock = socket.create_connection((DAEMON_HOST, DAEMON_PORT), timeout=5)
+        # 等待其端口文件出现
+        port_file = scripts_dir / "daemon.port"
+        deadline = time.time() + 10
+        port = None
+        while time.time() < deadline:
+            if port_file.exists():
+                port = int(port_file.read_text().strip())
+                break
+            time.sleep(0.2)
+        assert port is not None, "独立 daemon 未生成端口文件"
+
+        sock = socket.create_connection((DAEMON_HOST, port), timeout=5)
         resp = _send_request(sock, "shutdown")
         sock.close()
         proc.wait(timeout=5)
@@ -217,11 +246,11 @@ class TestCommandTimeout:
 class TestInvalidJson:
     """I-P3-10: 非法 JSON 请求"""
 
-    def test_invalid_json_does_not_crash(self, daemon_sock, daemon):
+    def test_invalid_json_does_not_crash(self, daemon_sock):
         daemon_sock.sendall(b"this is not json\n")
-        # daemon 不应崩溃
+        # daemon 不应崩溃：0.5s 后端口仍可连接
         time.sleep(0.5)
-        assert daemon.poll() is None, "daemon 进程不应因非法输入崩溃"
+        assert _is_port_open(DAEMON_HOST, _daemon_port()), "daemon 进程不应因非法输入崩溃"
 
 
 class TestDaemonStartup:
@@ -229,4 +258,4 @@ class TestDaemonStartup:
 
     def test_daemon_port_open_within_5_seconds(self, daemon):
         """daemon fixture 已经验证启动成功。此处再验证端口仍在监听。"""
-        assert _is_port_open(DAEMON_HOST, DAEMON_PORT)
+        assert _is_port_open(DAEMON_HOST, _daemon_port())

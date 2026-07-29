@@ -76,20 +76,25 @@ def setup_teardown(daemon_session):
     _cleanup()
 
 
-def _read_token():
-    """读取 daemon.token 获取鉴权 token。"""
-    token_file = os.path.join(os.path.dirname(__file__), '..', '..', 'scripts', 'daemon.token')
-    if os.path.exists(token_file):
-        with open(token_file, 'r') as f:
-            return f.read().strip()
-    return ""
+def _daemon_port():
+    """读取 daemon.port 文件获取 daemon 端口，不存在返回 None。"""
+    port_file = os.path.join(os.path.dirname(__file__), '..', '..', 'scripts', 'daemon.port')
+    if os.path.exists(port_file):
+        try:
+            return int(open(port_file).read().strip())
+        except Exception:
+            return None
+    return None
 
 
 def _reset_daemon():
     """向 daemon 发送 reset 请求，清空所有 session。忽略连接失败（daemon 未运行时跳过）。"""
+    port = _daemon_port()
+    if not port:
+        return
     try:
-        sock = socket.create_connection(("127.0.0.1", 19522), timeout=2)
-        req = {"id": "reset", "method": "reset", "params": {}, "auth": _read_token()}
+        sock = socket.create_connection(("127.0.0.1", port), timeout=2)
+        req = {"id": "reset", "method": "reset", "params": {}, "auth": ""}
         sock.sendall((json.dumps(req) + "\n").encode())
         sock.settimeout(2)
         sock.recv(1024)
@@ -429,7 +434,7 @@ class TestEnableRootLogin:
         # 步骤 3: AI 确认后，触发 enable_root_login — 这里直接调用 daemon RPC
         # （实际生产环境中由 AI 通过 inbox action 触发，测试环境直接验证效果）
         import socket, json as _json
-        sock = socket.create_connection(("127.0.0.1", 19522), timeout=5)
+        sock = socket.create_connection(("127.0.0.1", _daemon_port()), timeout=5)
         sock.sendall((_json.dumps({
             "id": "enable_root", "method": "connect",
             "params": {"target": "172.18.98.56", "host": "172.18.98.56",

@@ -45,6 +45,27 @@ if CONFIG_FILE is None:
     CONFIG_FILE = os.path.join(_exe_dir, "env_config.json")
     TOKEN_FILE = os.path.join(_exe_dir, "daemon.token")
 
+# 端口文件：与 env_config.json 同目录。记录本 skill 安装实例独占的 daemon 端口，
+# 实现多 Agent 隔离（ClaudeCode / OpenCode 各自的安装目录各自一个 daemon）。
+PORT_FILE = os.path.join(os.path.dirname(CONFIG_FILE), "daemon.port")
+
+
+def resolve_daemon_port() -> tuple:
+    """解析本实例的 daemon 端口，返回 (port, from_file)。
+
+    端口文件存在 → 使用文件中的端口（from_file=True），该端口归本实例所有，
+    daemon 启动时会清理其上残留的旧进程。
+    不存在 → 从 19522 开始向上探测空闲端口（from_file=False），
+    由 DaemonServer 绑定成功后写入文件。
+    """
+    if os.path.exists(PORT_FILE):
+        try:
+            with open(PORT_FILE, "r", encoding="utf-8") as f:
+                return int(f.read().strip()), True
+        except Exception:
+            pass
+    return 19522, False
+
 
 def load_or_create_token() -> str:
     """读取本机鉴权 token；不存在则生成。run.py 使用同一文件，两侧天然一致。"""
@@ -64,6 +85,15 @@ def load_or_create_token() -> str:
 
 
 # ---- 数据类 ----
+
+class DaemonError(Exception):
+    """带结构化错误码的业务错误，由 _route 透传到顶层 error 字段。"""
+
+    def __init__(self, code: str, message: str):
+        self.code = code
+        self.message = message
+        super().__init__(message)
+
 
 @dataclass
 class SessionInfo:
@@ -155,9 +185,10 @@ class SessionPool:
 class DaemonServer:
     """后台常驻 TCP 服务器，JSON-line 协议，token 鉴权。"""
 
-    def __init__(self, config: dict, token: str):
+    def __init__(self, config: dict, token: str, port: int = 19522, port_from_file: bool = False):
         self.host = config.get("daemon", {}).get("host", "127.0.0.1")
-        self.port = config.get("daemon", {}).get("port", 19522)
+        self.port = port
+        self.port_from_file = port_from_file
         self.session_idle_timeout = config.get("daemon", {}).get("session_idle_timeout", 300)
         self.heartbeat_interval = config.get("daemon", {}).get("heartbeat_interval", 60)
         self.pool = SessionPool()
@@ -170,13 +201,39 @@ class DaemonServer:
     # ---- 生命周期 ----
 
     def start(self):
-        """清理旧 daemon（如有）→ 绑定端口 → 启动 accept。"""
-        self._replace_old_daemon()
-        self._server_socket = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
-        self._server_socket.setsockopt(socket.SOL_SOCKET, socket.SO_REUSEADDR, 1)
-        self._server_socket.bind((self.host, self.port))
+        """端口来自文件 → 清理旧进程后绑定；端口为探测值 → 绑定失败则换下一个。"""
+        if self.port_from_file:
+            self._replace_old_daemon()
+
+        while True:
+            try:
+                self._server_socket = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
+                if sys.platform == "win32":
+                    # Windows 的 SO_REUSEADDR 允许多进程绑定同一端口（与 Linux 语义不同），
+                    # 必须用 SO_EXCLUSIVEADDRUSE 才能真正实现端口独占，保证多 Agent 隔离。
+                    self._server_socket.setsockopt(socket.SOL_SOCKET, socket.SO_EXCLUSIVEADDRUSE, 1)
+                else:
+                    self._server_socket.setsockopt(socket.SOL_SOCKET, socket.SO_REUSEADDR, 1)
+                self._server_socket.bind((self.host, self.port))
+                break
+            except OSError:
+                if self.port_from_file:
+                    raise  # 自己所有的端口还绑不上，直接报错
+                self._server_socket = None
+                self.port += 1
+                if self.port > 19622:
+                    raise RuntimeError("无可用 daemon 端口 (19522-19622 均被占用)")
+
         self._server_socket.listen(5)
         self._running = True
+
+        # 探测得到的端口：绑定成功后写入端口文件，后续 run.py 从这里读取
+        if not self.port_from_file:
+            try:
+                with open(PORT_FILE, "w", encoding="utf-8") as f:
+                    f.write(str(self.port))
+            except Exception as e:
+                print(f"[WARN] 端口文件写入失败 {PORT_FILE}: {e}", file=sys.stderr)
 
         accept_thread = threading.Thread(target=self._accept_loop, daemon=True)
         accept_thread.start()
@@ -245,10 +302,6 @@ class DaemonServer:
     # ---- 路由 ----
 
     def _route(self, request: dict) -> dict:
-        # token file 鉴权：允许无 auth（兼容旧客户端）
-        if request.get("auth") and request.get("auth") != self._token:
-            print(f"[WARN] token mismatch: received={request.get('auth','')[:8]}... expected={self._token[:8]}... file={TOKEN_FILE}", file=sys.stderr)
-
         method = request.get("method", "")
         params = request.get("params", {})
         req_id = request.get("id")
@@ -277,6 +330,9 @@ class DaemonServer:
             if method == "shutdown":
                 return {"result": result}
             return resp
+        except DaemonError as e:
+            # 带结构化错误码的业务错误（如 COMMAND_TIMEOUT），透传到顶层 error
+            return {"id": req_id, "error": {"code": e.code, "message": e.message}}
         except Exception as e:
             return {"id": req_id, "error": {"code": "INVALID_PARAMS", "message": str(e)}}
 
@@ -348,10 +404,14 @@ class DaemonServer:
             return err
 
         # 执行
-        if escalate:
-            result = session.execute_sudo(command, timeout)
-        else:
-            result = session.execute(command, timeout)
+        try:
+            if escalate:
+                result = session.execute_sudo(command, timeout)
+            else:
+                result = session.execute(command, timeout)
+        except (socket.timeout, TimeoutError):
+            raise DaemonError("COMMAND_TIMEOUT",
+                              f"命令执行超时 ({timeout}s)，远端进程可能仍在运行")
 
         return {
             "success": result.exit_code == 0,
@@ -474,7 +534,8 @@ class DaemonServer:
     # ---- 旧进程清理 ----
 
     def _replace_old_daemon(self):
-        """端口被占用时，尝试优雅关闭旧 daemon，失败则强杀进程。"""
+        """仅当端口来自端口文件（本实例所有）时，清理其上残留的旧进程。
+        探测得到的新端口不做清理，避免误杀其他 Agent 的 daemon。"""
         try:
             s = socket.create_connection((self.host, self.port), timeout=2)
             # 读旧 daemon 的 token
@@ -494,13 +555,12 @@ class DaemonServer:
         # 端口仍被占用 → 强杀
         self._kill_by_port()
 
-    @staticmethod
-    def _kill_by_port():
-        """强杀占用 daemon 端口的进程（Windows）。"""
+    def _kill_by_port(self):
+        """强杀占用本 daemon 端口的进程（Windows）。"""
         try:
             import subprocess
-            result = subprocess.run(
-                f'powershell -c "(Get-NetTCPConnection -LocalPort {DAEMON_PORT} -ErrorAction SilentlyContinue).OwningProcess | ForEach-Object {{ Stop-Process -Id \\$_ -Force }}"',
+            subprocess.run(
+                f'powershell -c "(Get-NetTCPConnection -LocalPort {self.port} -ErrorAction SilentlyContinue).OwningProcess | ForEach-Object {{ Stop-Process -Id \\$_ -Force }}"',
                 shell=True, capture_output=True, text=True, timeout=10)
         except Exception:
             pass
@@ -573,7 +633,8 @@ def main():
         config = json.load(f)
 
     token = load_or_create_token()
-    server = DaemonServer(config, token)
+    port, port_from_file = resolve_daemon_port()
+    server = DaemonServer(config, token, port=port, port_from_file=port_from_file)
     try:
         server.start()
         while server._running:

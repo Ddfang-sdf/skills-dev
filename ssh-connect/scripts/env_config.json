@@ -1,9 +1,21 @@
 {
-    "daemon": {"host": "127.0.0.1", "port": 19522, "session_idle_timeout": 300, "heartbeat_interval": 60},
+    "daemon": {
+        "host": "127.0.0.1",
+        "session_idle_timeout": 300,
+        "heartbeat_interval": 60
+    },
     "environments": {
         "示例IP": {
-            "host": "192.168.1.100", "port": 22,
-            "credentials": [{"name": "admin", "username": "用户名", "password": "密码", "sudo_password": "sudo密码"}],
+            "host": "192.168.1.100",
+            "port": 22,
+            "credentials": [
+                {
+                    "name": "admin",
+                    "username": "用户名",
+                    "password": "密码",
+                    "sudo_password": "sudo密码"
+                }
+            ],
             "default_credential": "admin"
         }
     }

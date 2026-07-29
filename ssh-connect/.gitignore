@@ -1,5 +1,6 @@
 # Runtime
 daemon.token
+daemon.port
 known_hosts
 inbox/
 outbox/
