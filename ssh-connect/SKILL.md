@@ -87,19 +87,8 @@ inbox/task.json 文件每次只能包含以下五种操作之一（不可同时�
 
 ### 2. 上传文件
 
-单文件：
-```json
-{
-    "task_id": "task_2",
-    "target": "10.0.1.5",
-    "upload": {
-        "local": "C:/Users/xxx/app.jar",
-        "remote": "/home/admin/app.jar"
-    }
-}
-```
+`upload` 字段**必须是数组**，即使只传一个文件：
 
-批量（数组）：
 ```json
 {
     "task_id": "task_2",
@@ -111,7 +100,20 @@ inbox/task.json 文件每次只能包含以下五种操作之一（不可同时�
 }
 ```
 
-批量结果含 `total`/`failed`/`errors` 统计，部分失败时 `success=false` 且 `errors` 列出每个失败项的原因。
+单文件同样用数组：
+```json
+{
+    "task_id": "task_2",
+    "target": "10.0.1.5",
+    "upload": [
+        {"local": "C:/Users/xxx/app.jar", "remote": "/home/admin/app.jar"}
+    ]
+}
+```
+
+**禁止单对象格式** `"upload": {...}`，脚本会直接拒绝并提示使用数组。
+
+结果含 `total`/`failed`/`errors` 统计，部分失败时 `success=false` 且 `errors` 列出每个失败项的原因。
 
 - `local` 必须是 Windows 绝对路径，使用正斜杠
 - `remote` 是远程 Linux 路径
@@ -120,19 +122,19 @@ inbox/task.json 文件每次只能包含以下五种操作之一（不可同时�
 
 ### 3. 下载文件
 
-单文件：
+`download` 字段**必须是数组**，规则与上传一致：
+
 ```json
 {
     "task_id": "task_3",
     "target": "10.0.1.5",
-    "download": {
-        "remote": "/opt/logs/app.log",
-        "local": "C:/Users/xxx/downloads/app.log"
-    }
+    "download": [
+        {"remote": "/opt/logs/app.log", "local": "C:/Users/xxx/downloads/app.log"}
+    ]
 }
 ```
 
-批量（数组格式同上）。同样支持可选字段 `as` 与 `force`。
+同样支持可选字段 `as` 与 `force`。
 
 ### 4. 会话管理
 

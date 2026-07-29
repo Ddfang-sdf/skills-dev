@@ -182,10 +182,10 @@ class TestFileUpload:
         _write_inbox({
             "task_id": "task_2",
             "target": "172.18.98.56",
-            "upload": {
+            "upload": [{
                 "local": tmp_file,
                 "remote": "/tmp/blackbox_upload_test.txt"
-            }
+            }]
         })
         _run()
         result = _read_outbox()
@@ -201,10 +201,10 @@ class TestFileDownload:
         _write_inbox({
             "task_id": "task_6",
             "target": "172.18.98.56",
-            "download": {
+            "download": [{
                 "remote": "/tmp/blackbox_dl_test.txt",
                 "local": tmp_dl
-            }
+            }]
         })
         _run()
         result = _read_outbox()
@@ -523,7 +523,7 @@ class TestMultipleFieldsConflict:
         _write_inbox({
             "task_id": "x", "target": "172.18.98.56",
             "command": "ls",
-            "upload": {"local": "/x", "remote": "/x"}
+            "upload": [{"local": "/x", "remote": "/x"}]
         })
         _run()
         result = _read_outbox()
@@ -619,7 +619,7 @@ class TestSFTPErrors:
     def test_upload_to_nonexistent_path(self):
         _write_inbox({
             "task_id": "t2", "target": "172.18.98.56",
-            "upload": {"local": "/tmp/fake.txt", "remote": "/nonexist/f.txt"}
+            "upload": [{"local": "/tmp/fake.txt", "remote": "/nonexist/f.txt"}]
         })
         _run()
         result = _read_outbox()
@@ -628,7 +628,7 @@ class TestSFTPErrors:
     def test_download_nonexistent_file(self):
         _write_inbox({
             "task_id": "t3", "target": "172.18.98.56",
-            "download": {"remote": "/nonexist_file.txt", "local": "/tmp/dummy.txt"}
+            "download": [{"remote": "/nonexist_file.txt", "local": "/tmp/dummy.txt"}]
         })
         _run()
         result = _read_outbox()

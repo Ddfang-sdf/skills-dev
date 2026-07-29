@@ -399,11 +399,13 @@ def process_task(task: dict, guard: CommandGuard, executor: Executor) -> dict:
         else:
             return {"task_id": task_id, "success": False, "error": f"未知 session 操作: {session_action}"}
 
-    # 文件传输（先做远端路径敏感检查，批量逐个检查）
+    # 文件传输（只接受数组格式；先做远端路径敏感检查，批量逐个检查）
     if "upload" in task:
         u = task["upload"]
-        files = u if isinstance(u, list) else [u]
-        for f in files:
+        if not isinstance(u, list):
+            return {"task_id": task_id, "success": False,
+                    "stderr": "upload 必须是数组格式，即使单文件也请使用 [{\"local\": \"...\", \"remote\": \"...\"}]"}
+        for f in u:
             check = guard.check_transfer(f.get("remote", ""))
             if not CommandGuard.can_execute(check.level, task.get("force", False)):
                 return _blocked_result(task_id, check)
@@ -414,8 +416,10 @@ def process_task(task: dict, guard: CommandGuard, executor: Executor) -> dict:
         return result
     if "download" in task:
         d = task["download"]
-        files = d if isinstance(d, list) else [d]
-        for f in files:
+        if not isinstance(d, list):
+            return {"task_id": task_id, "success": False,
+                    "stderr": "download 必须是数组格式，即使单文件也请使用 [{\"remote\": \"...\", \"local\": \"...\"}]"}
+        for f in d:
             check = guard.check_transfer(f.get("remote", ""))
             if not CommandGuard.can_execute(check.level, task.get("force", False)):
                 return _blocked_result(task_id, check)
