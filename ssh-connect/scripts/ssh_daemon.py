@@ -571,8 +571,10 @@ class DaemonServer:
         """解析 target，返回 (host, credential_name, username, password, sudo_password, via_config)。
 
         target 只能是已录入的环境名（env add），不接受内联凭证格式。
+        每次调用时重新读取 env_config.json，支持 env add/update 后无需重启 daemon。
         """
-        env_config = self.env_config
+        with open(CONFIG_FILE, "r", encoding="utf-8") as f:
+            env_config = json.load(f)
         environments = env_config.get("environments", {})
 
         env = environments.get(target)
@@ -626,8 +628,10 @@ class DaemonServer:
 
 def main():
     if not os.path.exists(CONFIG_FILE):
-        print(f"配置文件不存在: {CONFIG_FILE}", flush=True)
-        return
+        # 全新安装无配置文件时，创建空配置，避免 daemon 直接退出
+        with open(CONFIG_FILE, "w", encoding="utf-8") as f:
+            json.dump({"environments": {}}, f, ensure_ascii=False, indent=2)
+        print(f"已创建空配置文件: {CONFIG_FILE}", flush=True)
 
     with open(CONFIG_FILE, "r", encoding="utf-8") as f:
         config = json.load(f)
