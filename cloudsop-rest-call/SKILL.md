@@ -42,7 +42,6 @@ description: 当 AI 在分析问题、排查故障、验证需求时需要调用
 ### 第二步：执行
 
 - exe 包：`<SKILL_ROOT>/bin/rest-run.exe`
-- 源码包：`python <SKILL_ROOT>/scripts/rest_run.py`
 
 ### 第三步：获取结果
 
@@ -166,6 +165,7 @@ body 里报 NullPointerException，疑似是 xxx 表没初始化。
 
 - **ER 模式**：无需额外依赖，本机直连
 - **IR 模式**：ssh-connect skill 必须已安装在本 skill 同级目录（`<skills_root>/ssh-connect/`）。找不到时报错提示用户安装。
+- **IR 调用过程**：会向 ssh-connect 的 inbox 写入临时 task 文件（探测 IR IP 用），执行后由 ssh-connect 自动清理。如果看到 ssh-connect inbox 里有 `task_ir_probe_xxx.json` 残留，说明上次调用中途失败，删除即可。
 
 ---
 

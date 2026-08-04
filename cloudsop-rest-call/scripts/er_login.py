@@ -1,10 +1,11 @@
 """
 ER 登录器 — 5 步登录链路最终拿到 bspsession (cookie) + roarand (csrf token) 塞进 header。
-5 步登录链路最终拿到 bspsession (cookie) + roarand (csrf token) 塞进 header。
 
 用法:
-    python er_login.py <ip> <user> <pwd>      # CLI 模式，打印 cookie/roarand
+    python er_login.py <login_task.json>      # CLI 模式，打印 cookie/roarand
     from er_login import login                 # 库模式，供 rest_run.py import
+
+login_task.json 格式: {"ip": "7.222.36.7", "user": "admin", "pwd": "Changeme_123"}
 
 返回: (client, headers, bsp, csrf)
   - client:   已建立会话的 requests.Session，可直接发后续请求
@@ -114,10 +115,8 @@ def is_authorized(response_status, response_body):
 
 if __name__ == "__main__":
     # CLI 模式：从 JSON 文件读取凭证（避免密码出现在命令行参数里）
-    # 用法: python er_login.py <login_task.json>
-    # login_task.json 格式: {"ip": "7.222.36.7", "user": "admin", "pwd": "Changeme_123"}
     if len(sys.argv) < 2:
-        print("用法: python er_login.py <login_task.json>")
+        print("用法: er_login.py <login_task.json>")
         print("login_task.json 格式: {\"ip\": \"7.222.36.7\", \"user\": \"admin\", \"pwd\": \"Changeme_123\"}")
         sys.exit(1)
 
