@@ -1,6 +1,6 @@
 # NCE swagger/yaml 接口定义文件格式速查
 
-> 调用 NCE/CloudSOP 微服务接口时，接口定义通常在 swagger 2.0 格式的 yaml 文件里。本文档说明如何从 yaml 提取调用所需信息。
+> AI 分析问题时需要调用 NCE/CloudSOP 微服务接口，接口定义通常在 swagger 2.0 格式的 yaml 文件里。本文档说明如何从 yaml 提取调用所需信息。
 
 ## 文件命名规律
 

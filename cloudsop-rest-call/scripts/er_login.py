@@ -1,5 +1,5 @@
 """
-ER 登录器 — 复刻 SshNBBox tools/util/ErBspSessionReq.py 的 BspSessionBuilder 流程。
+ER 登录器 — 5 步登录链路最终拿到 bspsession (cookie) + roarand (csrf token) 塞进 header。
 5 步登录链路最终拿到 bspsession (cookie) + roarand (csrf token) 塞进 header。
 
 用法:
@@ -113,9 +113,20 @@ def is_authorized(response_status, response_body):
 
 
 if __name__ == "__main__":
-    ip = sys.argv[1] if len(sys.argv) > 1 else "7.222.36.7"
-    user = sys.argv[2] if len(sys.argv) > 2 else "admin"
-    pwd = sys.argv[3] if len(sys.argv) > 3 else "Changeme_123"
+    # CLI 模式：从 JSON 文件读取凭证（避免密码出现在命令行参数里）
+    # 用法: python er_login.py <login_task.json>
+    # login_task.json 格式: {"ip": "7.222.36.7", "user": "admin", "pwd": "Changeme_123"}
+    if len(sys.argv) < 2:
+        print("用法: python er_login.py <login_task.json>")
+        print("login_task.json 格式: {\"ip\": \"7.222.36.7\", \"user\": \"admin\", \"pwd\": \"Changeme_123\"}")
+        sys.exit(1)
+
+    with open(sys.argv[1], "r", encoding="utf-8") as f:
+        params = json.load(f)
+
+    ip = params.get("ip", "7.222.36.7")
+    user = params.get("user", "admin")
+    pwd = params.get("pwd", "Changeme_123")
     try:
         client, headers, bsp, csrf = login(ip, user, pwd)
         print("\n=== 登录成功 ===")

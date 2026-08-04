@@ -102,4 +102,3 @@ echo '<command 字符串>' | python -c "import sys; print(sys.stdin.read())"
 
 - `scripts/ir_caller.py::_build_python_snippet` —— 生成 python 片段
 - `scripts/ir_caller.py::_build_shell_command` —— 包裹 shell + JSON 转义
-- SshNBBox 仓 `ui/uitools/SshRestUI.py:1087-1101` —— "转录模式"单行命令模板（本方案的灵感来源）

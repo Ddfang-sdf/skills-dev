@@ -1,5 +1,7 @@
 """
-CloudSOP REST 调用主调度脚本 — 读 inbox/task_*.json，按 mode (er/ir) 分流到对应调用器。
+CloudSOP REST 调用主调度脚本 — AI 分析过程中自主调用接口的入口。
+
+读 inbox/task_*.json，按 mode (er/ir) 分流到对应调用器。
 
 用法:
     python rest_run.py                     # 扫描 inbox/ 所有 task_*.json 并执行
@@ -63,7 +65,7 @@ task 文件位置: <SKILL_ROOT>/inbox/task_{id}.json
 task 文件格式见脚本头部注释。
 
 输出:
-    每个调用按 Postman 风格打印: method url / status time size / body
+    每个调用打印: method url / status time size / body
     末尾汇总表: [OK/FAIL] status path
     完整结果 JSON 写到 outbox/result_{task_id}.json
 """)
@@ -84,13 +86,13 @@ def load_body(call, inbox_dir):
 
 
 def print_call_header(mode, method, target, path):
-    """Postman 风格的调用头"""
+    """打印调用头"""
     port = ER_PORT if mode == "er" else 32018
     print(f"\n{mode.upper()} {method.upper()} https://{target}:{port}{path}")
 
 
 def print_call_result(status, elapsed_s, size, body):
-    """Postman 风格的调用结果"""
+    """打印调用结果"""
     time_str = f"{elapsed_s*1000:.0f} ms" if elapsed_s < 1 else f"{elapsed_s:.2f} s"
     print(f"status={status}  time={time_str}  size={size} bytes")
     if body:
@@ -200,6 +202,7 @@ def run_ir_task(task, inbox_dir):
             try:
                 body = json.loads(body_str)
             except Exception:
+                # body_file 内容不是 JSON 时，说明是原始文本（如 XML），按字符串传
                 body = body_str
 
         print(f"\n--- [{i}/{len(calls)}] ---")
@@ -253,6 +256,7 @@ def main():
     skill_root = os.path.dirname(SCRIPT_DIR)
     inbox_dir = os.path.join(skill_root, "inbox")
     outbox_dir = os.path.join(skill_root, "outbox")
+    os.makedirs(inbox_dir, exist_ok=True)
     os.makedirs(outbox_dir, exist_ok=True)
 
     # 找要执行的 task 文件
@@ -296,6 +300,12 @@ def main():
         with open(result_file, "w", encoding="utf-8") as f:
             json.dump({"task_id": task["task_id"], **result}, f, ensure_ascii=False, indent=2)
         print(f"\n[完整结果: {result_file}]")
+
+        # 执行后删除已处理的 task 文件（与 ssh-connect 行为一致，避免堆积）
+        try:
+            os.remove(task_file)
+        except Exception:
+            pass
 
 
 if __name__ == "__main__":

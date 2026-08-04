@@ -4,14 +4,14 @@
 
 ## 概述
 
-ER (31943) 是 NCE 对外应用面端口，鉴权是一套 5 步 HTTP 重定向链路，最终拿到两个值塞进 header：
+ER (31943) 是 cloudsop 对外应用面端口，鉴权是一套 5 步 HTTP 重定向链路，最终拿到两个值塞进 header：
 
 | 值 | 来源 | 用途 |
 |----|------|------|
 | `bspsession` | step 2 的 cookie | 会话标识，塞进 `Cookie` header |
 | `csrfToken` (roarand) | step 4 的 JSON 响应 | CSRF 防护，塞进 `roarand` 和 `X-Uni-Crsf-Token` header |
 
-这正是用户用 Postman 时从浏览器 devtools 手抄的两个值——skill 自动化了这套手工流程。
+skill 在 AI 分析过程中自动完成这套登录流程，用户无需感知。
 
 ## 5 步详解
 
@@ -112,9 +112,3 @@ Cookie: locale=zh-cn; bspsession=<...>
   └─ step 5 卡住 (一直 302)             → license 服务异常
 ```
 
-## 参考代码位置（SshNBBox 仓）
-
-- `tools/util/ErBspSessionReq.py:13-120` —— `BspSessionBuilder` 全流程（本脚本的直接蓝本）
-- `tools/util/ErBspSessionReq.py:9` —— `ER_PORT = 31943`
-- `tools/util/ErBspSessionReq.py:111-117` —— 最终 header 拼装（`end()` 方法）
-- `ui/uitools/SshRestUI.py:1018-1057` —— `send_rest_er` 桌面端 ER 调用入口

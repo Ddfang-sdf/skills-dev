@@ -17,17 +17,34 @@ import subprocess
 import sys
 import time
 
-# ssh-connect skill 路径（标准安装位置）
-SSH_CONNECT_SKILL = os.path.expanduser(r"~\.cac\skills\ssh-connect")
-SSH_CONNECT_BIN = os.path.join(SSH_CONNECT_SKILL, "bin", "ssh-run.exe")
-SSH_CONNECT_INBOX = os.path.join(SSH_CONNECT_SKILL, "inbox")
+def _resolve_ssh_connect():
+    """定位同级目录下的 ssh-connect skill。
+
+    本 skill 在 <skills_root>/cloudsop-rest-call/，ssh-connect 在 <skills_root>/ssh-connect/。
+    找不到直接终止并提示用户安装。
+    """
+    # 从当前脚本位置推导 skills 根目录
+    # scripts/ir_caller.py → scripts/ → cloudsop-rest-call/ → <skills_root>/
+    skills_root = os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
+    ssh_connect_root = os.path.join(skills_root, "ssh-connect")
+    bin_exe = os.path.join(ssh_connect_root, "bin", "ssh-run.exe")
+    src_py = os.path.join(ssh_connect_root, "scripts", "run.py")
+
+    if os.path.exists(bin_exe):
+        return ssh_connect_root, bin_exe
+    if os.path.exists(src_py):
+        return ssh_connect_root, src_py
+
+    raise FileNotFoundError(
+        f"未找到 ssh-connect skill，请先安装到 {ssh_connect_root}\n"
+        f"期望位置: {bin_exe} 或 {src_py}"
+    )
 
 IR_PORT = 32018
-CLOUDSOP_IR_PORT = 32038
 
-# 输出解析正则
+# 输出解析正则（DOTALL：BODY 可能含多行 JSON）
 STATUS_RE = re.compile(r"^STATUS:\s*(\d+)", re.MULTILINE)
-BODY_RE = re.compile(r"^BODY:\s*(.*)", re.MULTILINE)
+BODY_RE = re.compile(r"^BODY:\s*(.*)", re.MULTILINE | re.DOTALL)
 
 
 def _build_python_snippet(method, path, body_str, ir_ip, port, r21c10_plus=True):
@@ -42,7 +59,7 @@ def _build_python_snippet(method, path, body_str, ir_ip, port, r21c10_plus=True)
     path:      /rest/.../path
     body_str:  JSON 字符串（POST/PUT/PATCH 用）；GET/DELETE 传空字符串
     ir_ip:     IR 服务 IP
-    port:      32018 或 32038
+    port:      IR 服务端口，默认 32018
     r21c10_plus: True 用 get_local_ip(), False 用 getLocalIP()
     """
     ip_fn = "common.get_local_ip()" if r21c10_plus else "common.getLocalIP()"
@@ -120,7 +137,11 @@ def _run_ssh_connect(task):
     Returns: result dict，含 success/exit_code/stdout/stderr
     """
     task_id = task["task_id"]
-    task_file = os.path.join(SSH_CONNECT_INBOX, f"{task_id}.json")
+    # 解析同级目录下的 ssh-connect skill
+    ssh_connect_root, ssh_connect_bin = _resolve_ssh_connect()
+    ssh_connect_inbox = os.path.join(ssh_connect_root, "inbox")
+
+    task_file = os.path.join(ssh_connect_inbox, f"{task_id}.json")
 
     # 写 task 文件
     with open(task_file, "w", encoding="utf-8") as f:
@@ -131,7 +152,7 @@ def _run_ssh_connect(task):
     # 不能用 encoding="utf-8"，否则 UnicodeDecodeError。用 errors="replace" 兜底。
     try:
         proc = subprocess.run(
-            [SSH_CONNECT_BIN],
+            [ssh_connect_bin],
             capture_output=True, timeout=task.get("timeout", 120) + 30
         )
         # 优先用 result 文件（utf-8），stdout 只作 fallback
@@ -140,7 +161,7 @@ def _run_ssh_connect(task):
         return {"success": False, "exit_code": -1, "stdout": "", "stderr": f"ssh-run 调用失败: {e}"}
 
     # 解析 stdout 末尾的 [完整结果: outbox/result_{task_id}.json] 标记
-    result_file = os.path.join(SSH_CONNECT_SKILL, "outbox", f"result_{task_id}.json")
+    result_file = os.path.join(ssh_connect_root, "outbox", f"result_{task_id}.json")
     if os.path.exists(result_file):
         try:
             with open(result_file, "r", encoding="utf-8") as f:
@@ -162,7 +183,7 @@ def call_ir(target, method, path, body=None, port=IR_PORT, timeout=120, ir_ip=No
     method:       GET/POST/PUT/DELETE/PATCH
     path:         /rest/.../path
     body:         dict（POST/PUT/PATCH 用）；GET/DELETE 传 None
-    port:         32018 (默认) 或 32038 (CloudSOP)
+    port:         IR 服务端口，默认 32018
     timeout:      秒，默认 120（首次 python import 较慢）
     ir_ip:        显式指定 IR IP；None 则自动探测 localip
     r21c10_plus:  True 用 get_local_ip(), False 用 getLocalIP()；None 则先试新再降级
@@ -170,7 +191,13 @@ def call_ir(target, method, path, body=None, port=IR_PORT, timeout=120, ir_ip=No
     Returns: dict {success, status, body, elapsed_s, error}
     """
     t0 = time.perf_counter()
-    body_str = json.dumps(body, ensure_ascii=False) if body else ""
+    # body 可以是 dict（自动序列化）或 str（已是 JSON，直接用）
+    if body is None:
+        body_str = ""
+    elif isinstance(body, str):
+        body_str = body
+    else:
+        body_str = json.dumps(body, ensure_ascii=False)
 
     # 探测 IR IP
     if not ir_ip:
