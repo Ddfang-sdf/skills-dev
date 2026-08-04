@@ -4,9 +4,9 @@ CloudSOP REST 调用主调度脚本 — AI 分析过程中自主调用接口的�
 读 inbox/task_*.json，按 mode (er/ir) 分流到对应调用器。
 
 用法:
-    python rest_run.py                     # 扫描 inbox/ 所有 task_*.json 并执行
-    python rest_run.py <task_file.json>    # 只执行指定 task 文件
-    python rest_run.py --help              # 帮助
+    rest-run.exe                     # 扫描 inbox/ 所有 task_*.json 并执行
+    rest-run.exe <task_file.json>    # 只执行指定 task 文件
+    rest-run.exe --help              # 帮助
 
 task 文件格式:
     ER 模式:
@@ -44,30 +44,34 @@ import sys
 import time
 
 # 让 er_login / ir_caller 可被 import
-SCRIPT_DIR = os.path.dirname(os.path.abspath(__file__))
+if getattr(sys, 'frozen', False):
+    SCRIPT_DIR = os.path.dirname(sys.executable)
+else:
+    SCRIPT_DIR = os.path.dirname(os.path.abspath(__file__))
 sys.path.insert(0, SCRIPT_DIR)
 
 from er_login import login as er_login_fn, ER_PORT, is_authorized
 
 
 def print_help():
-    print("""
+    cmd = os.path.basename(sys.executable)
+    print(f"""
 CloudSOP REST 调用主调度脚本
 
 用法:
-    python rest_run.py                     扫描 inbox/ 所有 task_*.json 并执行
-    python rest_run.py <task_file.json>    只执行指定 task 文件
-    python rest_run.py --help              显示本帮助
+    {cmd}                     扫描 inbox/ 所有 task_*.json 并执行
+    {cmd} <task_file.json>    只执行指定 task 文件
+    {cmd} --help              显示本帮助
 
-task 文件位置: <SKILL_ROOT>/inbox/task_{id}.json
-结果文件位置: <SKILL_ROOT>/outbox/result_{id}.json
+task 文件位置: <SKILL_ROOT>/inbox/task_{{id}}.json
+结果文件位置: <SKILL_ROOT>/outbox/result_{{id}}.json
 
 task 文件格式见脚本头部注释。
 
 输出:
     每个调用打印: method url / status time size / body
     末尾汇总表: [OK/FAIL] status path
-    完整结果 JSON 写到 outbox/result_{task_id}.json
+    完整结果 JSON 写到 outbox/result_{{task_id}}.json
 """)
 
 
@@ -208,7 +212,8 @@ def run_ir_task(task, inbox_dir):
         print(f"\n--- [{i}/{len(calls)}] ---")
         print_call_header("ir", method, target, path)
         if body:
-            preview = (json.dumps(body, ensure_ascii=False)[:200] + "...") if len(json.dumps(body, ensure_ascii=False)) > 200 else json.dumps(body, ensure_ascii=False)
+            body_str = body if isinstance(body, str) else json.dumps(body, ensure_ascii=False)
+            preview = body_str[:200] + ("..." if len(body_str) > 200 else "")
             print(f">>> body: {preview}")
 
         result = call_ir(
@@ -253,6 +258,7 @@ def main():
         return
 
     # 定位 inbox/outbox（兼容 scripts/ 和 bin/ 两种布局）
+    # exe 模式: bin/rest-run.exe → skill_root 是 bin/ 的父目录
     skill_root = os.path.dirname(SCRIPT_DIR)
     inbox_dir = os.path.join(skill_root, "inbox")
     outbox_dir = os.path.join(skill_root, "outbox")

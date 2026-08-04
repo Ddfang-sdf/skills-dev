@@ -5,10 +5,9 @@ IR 是内部端口，必须从管理节点本机以 ossadm 身份调产品自带
 （处理双向 TLS + SSL_ROOT 环境变量）。本脚本构造单行 shell 命令，通过 ssh-connect skill 下发。
 
 用法:
-    python ir_caller.py <task_file.json>      # CLI 模式
     from ir_caller import call_ir             # 库模式，供 rest_run.py import
 
-依赖: 需 ssh-connect skill 已安装在 ~/.cac/skills/ssh-connect/
+依赖: 需 ssh-connect skill 已安装在本 skill 同级目录（<skills_root>/ssh-connect/）
 """
 import json
 import os
@@ -111,11 +110,19 @@ def _build_shell_command(method, path, body_str, ir_ip=None, port=IR_PORT, r21c1
     return f'su ossadm -c "{inner}"'
 
 
+# IR IP 探测缓存（同一 target 只探测一次）
+_ir_ip_cache = {}
+
+
 def _probe_ir_ip(target, timeout=30):
     """通过 ssh-connect 探测目标节点的 IR IP（localip）。
 
+    同一 target 只探测一次，缓存结果。
     Returns: IP 字符串，失败返回 None。
     """
+    if target in _ir_ip_cache:
+        return _ir_ip_cache[target]
+
     probe_cmd = "cat /opt/*/manager/var/agent/managerip.conf 2>/dev/null | grep -i localip"
     task = {
         "task_id": f"task_ir_probe_{int(time.time())}",
@@ -127,7 +134,10 @@ def _probe_ir_ip(target, timeout=30):
     stdout = result.get("stdout", "")
     # 输出形如 "localip=7.222.36.7"
     m = re.search(r"localip\s*=\s*([\d.]+)", stdout)
-    return m.group(1) if m else None
+    ip = m.group(1) if m else None
+    if ip:
+        _ir_ip_cache[target] = ip
+    return ip
 
 
 def _run_ssh_connect(task):
@@ -258,23 +268,3 @@ def call_ir(target, method, path, body=None, port=IR_PORT, timeout=120, ir_ip=No
     }
 
 
-if __name__ == "__main__":
-    if len(sys.argv) < 2:
-        print("用法: python ir_caller.py <task_file.json>")
-        print("task_file 格式: {target, method, path, body?, port?, timeout?}")
-        sys.exit(1)
-
-    with open(sys.argv[1], "r", encoding="utf-8") as f:
-        task = json.load(f)
-
-    result = call_ir(
-        target=task["target"],
-        method=task.get("method", "GET"),
-        path=task["path"],
-        body=task.get("body"),
-        port=task.get("port", IR_PORT),
-        timeout=task.get("timeout", 120),
-        ir_ip=task.get("ir_ip"),
-        r21c10_plus=task.get("r21c10_plus", True),
-    )
-    print(json.dumps(result, ensure_ascii=False, indent=2))
