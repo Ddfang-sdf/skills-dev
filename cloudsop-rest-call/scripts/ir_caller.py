@@ -21,11 +21,23 @@ def _resolve_ssh_connect():
 
     本 skill 在 <skills_root>/cloudsop-rest-call/，ssh-connect 在 <skills_root>/ssh-connect/。
     找不到直接终止并提示用户安装。
+
+    PyInstaller 打包后 __file__ 指向临时目录，需从 sys.executable 反推。
     """
-    # 从当前脚本位置推导 skills 根目录
-    # scripts/ir_caller.py → scripts/ → cloudsop-rest-call/ → <skills_root>/
-    skills_root = os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
-    ssh_connect_root = os.path.join(skills_root, "ssh-connect")
+    # 优先从环境变量读（用户自定义）
+    if os.environ.get("SSH_CONNECT_ROOT"):
+        ssh_connect_root = os.environ["SSH_CONNECT_ROOT"]
+    else:
+        # exe 模式: sys.executable = <skills_root>/cloudsop-rest-call/bin/rest-run.exe
+        # 源码模式: __file__ = <skills_root>/cloudsop-rest-call/scripts/ir_caller.py
+        if getattr(sys, 'frozen', False):
+            # sys.executable → bin/ → cloudsop-rest-call/ → <skills_root>/
+            skills_root = os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(sys.executable))))
+        else:
+            # __file__ → scripts/ → cloudsop-rest-call/ → <skills_root>/
+            skills_root = os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
+        ssh_connect_root = os.path.join(skills_root, "ssh-connect")
+
     bin_exe = os.path.join(ssh_connect_root, "bin", "ssh-run.exe")
     src_py = os.path.join(ssh_connect_root, "scripts", "run.py")
 
@@ -36,7 +48,8 @@ def _resolve_ssh_connect():
 
     raise FileNotFoundError(
         f"未找到 ssh-connect skill，请先安装到 {ssh_connect_root}\n"
-        f"期望位置: {bin_exe} 或 {src_py}"
+        f"期望位置: {bin_exe} 或 {src_py}\n"
+        f"也可设置环境变量 SSH_CONNECT_ROOT 指定安装位置"
     )
 
 IR_PORT = 32018
