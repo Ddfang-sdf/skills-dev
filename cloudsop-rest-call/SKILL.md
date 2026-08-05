@@ -152,12 +152,20 @@ body 里报 NullPointerException，疑似是 xxx 表没初始化。
 | 信号 | 含义 | 处置 |
 |------|------|------|
 | ER: TCP 探测失败 | 网络不通/VPN 没连 | 提示用户检查网络 |
-| ER: 登录失败 | 账号密码错 | 询问用户更新账号 |
+| **ER: 登录失败** | 账号密码错 | **必须询问用户重新提供凭证，更新 task 文件后重试** |
 | ER: 401 | cookie 过期 | 脚本自动重登一次，仍失败则报告 |
 | IR: 未找到 target | 环境未录入 ssh-connect | 引导用户先录 SSH 凭证 |
 | IR: SSH 密码错 | SSH 凭证失效 | 询问用户更新凭证 |
 | IR: STATUS 404 | 路径不对 | 核对 basePath + path |
 | IR: STATUS 503 | 服务未就绪 | 建议先 healthcheck 确认 |
+
+**登录失败处理流程（必须遵守）**：
+
+1. 向用户说明："登录失败，账号密码可能错误"
+2. 询问用户正确的用户名和密码
+3. 重写同名 task 文件（更新 user/pwd）
+4. 重新执行
+5. 仍失败 → 报告用户，不要继续猜测
 
 ---
 
@@ -215,6 +223,22 @@ AI: 我调一下 healthcheck 确认服务状态。
     [Run rest-run.exe]
     → status=503
 AI: 服务还没起来（503），看下日志定位原因。
+```
+
+### 示例 4：登录失败处理
+
+```
+用户: 帮我验证一下需求
+AI: 我调接口验证数据。
+    [Write inbox/task_1.json mode=er]
+    [Run rest-run.exe]
+    → 登录失败: validateUser status=401
+AI: 登录失败，账号密码可能错误。请提供正确的用户名和密码。
+用户: 用户名 admin，密码是 NewPassword456
+AI: [Write inbox/task_1.json 覆写，更新 user/pwd]
+    [Run rest-run.exe]
+    → status=200
+AI: 验证通过，数据正常。
 ```
 
 ---
